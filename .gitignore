@@ -9,6 +9,9 @@ build/
 *.crx
 *.zip
 
+# WXT (extension build framework)
+.wxt/
+
 # PartyKit / Cloudflare
 .partykit/
 .wrangler/
@@ -17,6 +20,8 @@ build/
 .env
 .env.*
 !.env.example
+.dev.vars
+*.dev.vars
 
 # Logs
 *.log

@@ -80,24 +80,36 @@ Drift correction is hard if clients project playback time using their own wall c
 
 ### Protocol (WebSocket JSON messages)
 
+> **Source of truth:** the wire types live in `packages/protocol/src/index.ts`, imported by
+> the server, room page, and extension alike. Keep this table and that file in lockstep.
+> Note the SPEC `intent: 'playing' | 'paused'` model (human hard-state) replaces the older
+> `paused` boolean, so it can stay distinct from the soft buffer gate.
+
 Client → server:
 | type | payload | meaning |
 |---|---|---|
-| `join` | `{ room, name }` | join a room; server replies with a `sync` |
-| `setSource` | `{ src }` | change the room's source; resets time to 0 |
-| `control` | `{ paused, time }` | user played/paused/seeked locally (accepted per control mode) |
-| `setMode` | `{ mode }` | switch room between `open` and `host` |
+| `join` | `{ secret, name }` | join a room; secret = capability-URL fragment (SPEC §10). Server replies with `welcome` + a snapshot |
+| `setSource` | `{ src }` | change the room's source; resets time to 0 (control-mode gated) |
+| `control` | `{ intent, time, rate? }` | user played/paused/seeked locally (accepted per control mode) |
+| `setMode` | `{ mode }` | switch room between `open` and `host` (control-mode gated) |
 | `passControl` | `{ toId }` | (host mode) hand control to another member |
+| `status` | `{ state }` | report readiness `loading\|ready\|stalled\|failed` for the buffer gate (SPEC §9) |
+| `skip` | `{ memberId }` | drop a stalled/failed member from the gate (control-mode gated) |
+| `resync` | `{}` | request a fresh `sync` + `gate` snapshot (used on reconnect) |
 
 Server → client:
 | type | payload | meaning |
 |---|---|---|
-| `sync` | `{ src, paused, time, rate, mode, hostId }` | authoritative state; apply it |
-| `members` | `{ list }` | who's in the room (id, name, isHost) |
+| `welcome` | `{ self }` | admission ok; this connection's own member id |
+| `sync` | `{ src, intent, time, rate, mode, hostId }` | authoritative state, `time` already projected to now; apply it |
+| `members` | `{ list }` | presence list (`id, name, status`) |
+| `gate` | `{ paused, waitingFor }` | soft buffer gate; play only when `sync.intent==='playing'` AND `gate.paused===false` |
+| `log` | `{ event }` | one appended activity-log event (SPEC §11) |
+| `error` | `{ code, message }` | connection refused / action rejected |
 
-**Control acceptance rule (server-enforced):** a `control` is applied iff
-`room.mode === 'open'` OR `senderId === room.hostId`. Otherwise it's dropped and the sender
-gets a fresh `sync` to snap back into line.
+**Control acceptance rule (server-enforced):** a `control`/`setSource`/`setMode`/`skip` is
+applied iff `room.mode === 'open'` OR `senderId === room.hostId`. Otherwise it's dropped and
+the sender gets a fresh `sync` to snap back into line.
 
 ### Sync cadence
 - On `join` → immediate `sync`.
@@ -105,20 +117,62 @@ gets a fresh `sync` to snap back into line.
 - While a room is playing → server broadcasts a `sync` tick every **3s** (heartbeat) so
   slow drift gets corrected without anyone touching the controls.
 
+### Page ↔ iframe bridge (cross-origin)
+
+The room page owns the WS but **cannot script the cross-origin embed's `<video>`** (same-origin
+policy). The extension's content script — injected into that iframe — is the only code that can.
+They talk over `window.postMessage` with a tagged envelope (`packages/protocol/src/bridge.ts`,
+imported as `@sixseven/protocol/bridge`). Drift-correction (§4) runs in the content script,
+since it's the only side that can read/write `video.currentTime`.
+
+Page → frame: `hello` (handshake) · `apply { src, intent, time, rate, gatePaused }` (the server
+truth to enforce) · `overlay { takeover }` (escape hatch) · `setSubtitles { cues }` · `setSubtitleStyle { style }`
+(personal subtitles, §13 — page→frame only, never networked).
+Frame → page: `ready` · `hooked { found }` · `status { state, currentTime }` (every 1s + on
+events) · `localControl { intent, time }` (native-UI action when the escape hatch is open, which
+the page relays to the server as a `control`).
+
+### Subtitle proxy (HTTP, member-gated)
+
+The DO also serves an HTTP `onRequest` endpoint at the room's URL for subtitle **search/download**
+(SPEC §13, §17). It proxies subtitle *text* only (search JSON + KB-sized cue files) — control-plane,
+same category as `sync`, never video bytes. Requests must carry `x-sixseven-secret` (the room
+capability) so only members use it; provider API keys live in `room.env`, never on the client.
+`POST {op:'subs.search', query}` → `{results:[{id,provider,title,language,release}]}`;
+`POST {op:'subs.download', id}` → `{vtt}`. Providers (OpenSubtitles, SubDL) sit behind one
+interface and all output is normalized to WebVTT. CORS-enabled so the static page can call it.
+
+Messages are authenticated by the bridge tag/version, not origin (embed origin varies per
+provider). The channel carries positions and intents only — never media.
+
+**Nested frames.** Embed providers nest the real `<video>` several iframes deep, so the bridge
+**relays through the whole frame tree**: page→frame messages broadcast DOWN (each frame re-posts
+to its child iframes), frame→page messages bubble UP (each frame forwards a child's message to
+its own parent) until they reach the room page. A frame only **engages** (mounts overlay +
+subtitles, reports `status`) once it actually has a `<video>`; empty frames (embed chrome) stay
+silent and just relay, so they don't fight the real player's status. Because a video-less frame
+reports nothing, the **room page owns the failed-timeout**: a source set marks the member
+`loading`, then `failed` if no frame reports a video within ~15s (SPEC §9).
+
+The in-iframe overlay is **`pointer-events: none`** (a status badge only) — it must never block
+the native player, since autoplay needs a user gesture and server-switch/captcha/login live in
+the native UI. A full ad-hiding takeover is deferred.
+
 ## 4. Client drift-correction algorithm
 
-On receiving a `sync { paused, time, rate }`:
+Runs in the in-iframe content script on each `apply` (the page's forward of the server `sync`):
 ```
-if (video.src !== expected) load the new source
 video.playbackRate = rate
 if (Math.abs(video.currentTime - time) > THRESHOLD)   // THRESHOLD = 0.5s
     video.currentTime = time
-if (paused) video.pause() else video.play()
+const shouldPlay = intent === 'playing' && !gatePaused   // gate = soft-pause (SPEC §9)
+shouldPlay ? video.play() : video.pause()
 ```
 - `THRESHOLD` prevents constant micro-seeking (which causes stutter).
-- Local user actions (the user clicks play/seek) emit a `control` message; they are NOT
-  echoed back to the actor as a correction unless drift exceeds threshold.
-- A manual **"resync"** button forces `currentTime = time` for the "I fell behind" case.
+- The page sets the iframe `src`; the content script does not load sources (no extraction).
+- Self-initiated mutations are flagged so their echo events aren't reported as `localControl`.
+- Buffer readiness is derived from media events **and** a `readyState` poll fallback (events are
+  unreliable across players); no playable video within a 12s grace ⇒ `failed`, not `stalled`.
 
 ## 5. Frontend
 

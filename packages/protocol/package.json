@@ -1,0 +1,13 @@
+{
+  "name": "@sixseven/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bridge": "./src/bridge.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

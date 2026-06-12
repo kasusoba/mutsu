@@ -1,0 +1,3 @@
+# Prettier only formats .svelte files; Biome handles everything else.
+*
+!*.svelte

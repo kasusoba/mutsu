@@ -1,0 +1,20 @@
+{
+  "name": "@sixseven/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "partykit dev --with-env",
+    "deploy": "partykit deploy",
+    "test": "node test/sync-client.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sixseven/protocol": "workspace:*",
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "partykit": "^0.0.115",
+    "partysocket": "^1.0.3"
+  }
+}

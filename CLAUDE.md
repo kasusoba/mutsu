@@ -80,8 +80,65 @@ on that side of the line.
 
 ## Status
 
-📐 Planning — docs only, no code yet. Start at Roadmap Phase 0 (decisions).
+🛠️ Phases 1–3 built **and browser-verified** on real embeds (streamimdb, YouTube): control-sync
+works via both our control bar and the embed's native player; custom subtitles (upload + online
+search) render, restyle, and time-shift. Server side also has automated checks: `pnpm test:sync`
+→ 23/23; subtitle proxy `packages/server/test/subs-smoke.mjs` (live OpenSubtitles+SubDL); `vtt.test.mts`.
+All four packages typecheck + build (Chromium + Firefox); Biome clean.
+
+**Next up:** the **video/iframe picker** — an extension popup that scans the tab you're browsing for
+`<video>`/`<iframe>` and hands the chosen URL to the open room page (which calls `setSource`).
+Designed but not started. Then Phase 4+ (paste-URL player, frame-forbidding own-tab fallback,
+embedded-track subs).
+
+**Known caveats:** YouTube needs a user gesture per viewer before it'll play (autoplay policy);
+anti-devtools / sandboxed-iframe sites may not be hookable (we don't fight them — §3). A
+`DEBUG_HUD` flag in `extension/lib/subtitleLayer.ts` toggles an on-screen subtitle readout (off).
+
+**Gotcha for contributors:** never pass a Svelte `$state` value straight to `postMessage` — proxies
+aren't structured-cloneable and silently throw. Send `$state.snapshot(...)` (see `subtitleController`).
+
+## Repo layout
+
+pnpm monorepo (`packages/*`):
+- **protocol** — shared TS wire types; the one source of truth for the sync protocol. Main
+  entry = server↔client messages; `./bridge` subpath = room-page↔iframe postMessage messages.
+  Server, web, and extension all import it.
+- **server** — PartyKit Durable Object (one per room): authoritative state, single clock,
+  control-mode enforcement, buffer gate, heartbeat. Verified by `test/sync-client.mjs`.
+- **web** — Svelte 5 + Vite static SPA. **Owns the WebSocket** and room state; relays each
+  `sync`/`gate` into the embed iframe via the bridge; renders overlay controls, presence, log.
+- **extension** — WXT MV3 content script (`all_frames`). The only code that touches the embed's
+  `<video>`: runs drift-correction (SPEC §4), reports `status`, re-hooks on `<video>` swap,
+  draws the in-iframe takeover overlay **and the personal subtitle layer**. Talks to the room
+  page over `window.postMessage`.
+
+The DO also hosts a **member-gated subtitle proxy** (`onRequest`, `src/subtitles/`): OpenSubtitles
++ SubDL behind one interface, normalized to WebVTT, keys in `room.env` (never on the client). This
+is control-plane text, not video — see SPEC §2 ("no server in the *video path*"), §13.
+
+Architecture decision: **the room page owns the WS**, not a background service worker (SPEC §6
+allowed either). Stack: pnpm · TS (strict) · PartyKit · Svelte (Vite SPA) · WXT (MV3) · Biome
+(TS/JS) + Prettier (`.svelte`).
 
 ## Build/run commands
 
-_TBD — none yet. Will be added when Phase 1 lands._
+```bash
+pnpm install            # bootstrap the workspace
+pnpm dev:server         # PartyKit backend (:1999). Loads packages/server/.env via --with-env
+pnpm test:sync          # throwaway 2-client sync test (needs dev:server running) → 23/23
+node packages/server/test/subs-smoke.mjs "Inception"      # live subtitle-proxy test (needs dev:server)
+node --experimental-strip-types packages/server/test/vtt.test.mts  # SRT→VTT unit test
+pnpm --filter @sixseven/web dev          # room page dev server (Vite)
+pnpm --filter @sixseven/extension dev    # extension dev (Chromium); :firefox for FF
+pnpm --filter @sixseven/extension build  # → .output/chrome-mv3 (load unpacked)
+pnpm typecheck          # across all packages (svelte-check for web)
+pnpm lint               # biome check (TS/JS); pnpm format also runs prettier on .svelte
+```
+
+**Secrets:** `packages/server/.env` (gitignored) holds the OpenSubtitles + SubDL keys; PartyKit
+dev loads it via `--with-env` (already in the `dev` script). For deploy: `npx partykit env push`.
+Never commit keys; `.env.example` documents the vars.
+
+To try the MVP locally: `pnpm dev:server` + `pnpm --filter @sixseven/web dev`, build & load the
+extension unpacked, then open the printed URL as `/r/<room>#k=<secret>` in two browsers.

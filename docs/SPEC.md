@@ -25,6 +25,12 @@ Every design decision is tested against this. If a feature would route/transcode
 a server or run a browser in the cloud, it's rejected. That's what keeps hosting free and sync
 instant.
 
+**Precisely: the principle is "no server in the _video path_," not "no server."** We already run
+a server — the PartyKit DO — for control-plane data (the sync clock, presence). Adding more
+control-plane traffic (e.g. the subtitle-text proxy, §13) does **not** break the principle: it
+carries KB of text, never video bytes, and costs ~$0 on free tiers. What stays forbidden is
+anything in the *video* path — relay, transcode, cloud browser, stream extraction (§3).
+
 ## 3. Goals / non-goals
 
 **Goals**
@@ -206,8 +212,12 @@ effective_play = (intent==='playing') AND (stalled is empty among non-skipped me
   included), independent of the native player's subs.
 - Per-viewer, local (never synced): **offset/delay**, **position**, **style** (size/color/
   box/opacity).
-- **Sources:** **upload** (`.srt`/`.vtt`) + **embedded tracks** first; **online search**
-  (OpenSubtitles-style, needs an API key) second. No paste-URL.
+- **Sources:** **upload** (`.srt`/`.vtt`) + **online search** (OpenSubtitles + SubDL). No paste-URL.
+- **Online search = a control-plane proxy in the DO** (`onRequest`, member-gated): provider keys
+  live as deploy secrets, never on the client; results normalize to WebVTT. Providers are
+  swappable behind one interface — default **OpenSubtitles** (catalog + hash matching, ~20/day),
+  with **SubDL** merged in for volume (2000 req/day). Configurable via `SUBS_PROVIDER_ORDER`.
+  This is text, not video — on the right side of §2. *(Embedded-track extraction = later.)*
 
 ## 14. Hosting & cost
 > **Static page ≠ server.** The room page is static (free); only an always-on video-relaying
@@ -217,23 +227,29 @@ effective_play = (intent==='playing') AND (stalled is empty among non-skipped me
 |---|---|---|
 | Room page (static) | Cloudflare Pages | $0 |
 | Room backend | PartyKit / Durable Objects | $0 (free tier) |
+| Subtitle proxy | same DO (`onRequest`), text only | $0 (free tier) |
 | Domain | optional (free `*.pages.dev`) | $0 / ~$10yr |
 | Extension | unpacked → publish | $0 / store acct (have it) |
 
-**MVP total: $0.**
+**MVP total: $0.** The subtitle proxy doesn't change this: text-sized, scales to zero, free tier.
 
 ## 15. Roadmap (milestone per phase)
 - **P0 Decisions** — ✅ done (this spec).
-- **P1 Room backend** — PartyKit DO: state, protocol, single-clock projection, control-mode
-  enforcement, 3s heartbeat, reconnect. *Milestone: two test clients sync; host mode drops
-  non-host control.*
-- **P2 Room page + extension MVP** — static room page embeds source iframe; extension detects +
-  hooks the iframe `<video>`; clean overlay (+escape hatch); control-sync (0.5s); buffer gate
-  (25s skip); presence + log; re-hook on `<video>` swap. *Milestone: share an embed → crew opens
-  link → everyone watches the embedded source in sync.*
-- **P3 Subtitle overlay** — render cues ourselves on any source; offset/position/style; sources
-  upload+embedded, then search. *Milestone: load + restyle + time-shift personal subs over any
-  synced video.*
+- **P1 Room backend** — ✅ done. PartyKit DO: state, protocol, single-clock projection,
+  control-mode enforcement, buffer gate, 3s heartbeat, 25s auto-skip, reconnect, DO-storage
+  persistence. *Milestone met: two test clients sync; host mode drops non-host control
+  (`packages/server`, `pnpm test:sync` → 23/23).*
+- **P2 Room page + extension MVP** — 🟡 built, pending live browser test. Static room page
+  (`packages/web`) embeds source iframe + holds the WS; extension (`packages/extension`) hooks the
+  iframe `<video>`; clean overlay (+escape hatch); control-sync (0.5s); buffer gate (25s skip);
+  presence + log; re-hook on `<video>` swap. Builds + typechecks pass. *Remaining: share-to-room
+  picker UI (paste-URL works today) + the real-embed verification run.*
+- **P3 Subtitle overlay** — 🟡 built (proxy verified live; cue rendering pending browser test).
+  Server-side **subtitle proxy** (OpenSubtitles + SubDL, normalize→VTT, member-gated) verified
+  end-to-end (`test/subs-smoke.mjs` → 80 results + VTT download; `test/vtt.test.mts` green).
+  Web: VTT/SRT parser + subtitle panel (upload + online search + offset/position/style). Extension:
+  in-iframe cue renderer synced to `currentTime`+offset. *Remaining: embedded-track source + the
+  browser render verification.*
 - **P4 Secondary paths** — standalone paste-a-URL/HLS player; YouTube via iframe API;
   **frame-forbidding fallback** (own-tab sync); end-of-video "pick next." *Milestone: paste-a-URL
   party + a working fallback for non-embeddable sites.*
@@ -261,8 +277,12 @@ effective_play = (intent==='playing') AND (stalled is empty among non-skipped me
 | 15 | Nickname impersonation (no accounts) | Low | Acceptable for trusted group; not solving for MVP |
 
 ## 17. Open questions
-- Online-subtitle search provider + API key handling (Phase 3).
 - Project name (currently `sixseven`).
+
+**Resolved in P3:** online-subtitle **provider + API-key handling** → shared keys as **deploy
+secrets** behind a **member-gated proxy in the DO** (`onRequest`), providers swappable
+(OpenSubtitles default + SubDL volume), keys never on the client (§13). This clarified §2: the
+principle is "no server in the *video path*," and a text proxy doesn't cross it.
 
 **Resolved in stress test:** failed-to-load member → **auto-skip after 25s grace** (§9); **no**
 open-mode "lock" button (host mode suffices); frame-ability **auto-detected at runtime** with
