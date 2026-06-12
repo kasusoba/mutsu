@@ -88,6 +88,11 @@ export class PageBridge {
     this.post({ kind: "setSubtitleStyle", style });
   }
 
+  /** Hide/show our in-iframe overlay + subtitle layer ("use the site's player"). */
+  setHidden(hidden: boolean): void {
+    this.post({ kind: "setHidden", hidden });
+  }
+
   private post(msg: Parameters<typeof wrap>[0]): void {
     // targetOrigin "*" — embed origin is unknown; the content script validates
     // the bridge tag. We never send anything sensitive over this channel.

@@ -34,7 +34,14 @@ import {
 import { SubtitleLayer } from "../lib/subtitleLayer";
 import { VideoHook } from "../lib/videoHook";
 
-const FRAME_KINDS = new Set(["hello", "apply", "overlay", "setSubtitles", "setSubtitleStyle"]);
+const FRAME_KINDS = new Set([
+  "hello",
+  "apply",
+  "overlay",
+  "setSubtitles",
+  "setSubtitleStyle",
+  "setHidden",
+]);
 
 export default defineContentScript({
   matches: ["<all_urls>"],
@@ -77,11 +84,17 @@ export default defineContentScript({
     const subtitles = new SubtitleLayer(() => hook.currentTime());
 
     let engaged = false;
+    // Only activate inside an actual sixseven party: a `hello` from the room page
+    // (relayed down the frame tree) means we're embedded in a room. Without it —
+    // just a video on some random page the user is browsing — we stay inert and
+    // draw nothing (no badge, no hooking, no reporting).
+    let sawHello = false;
     // Last-known state, replayed onto the video once this frame engages.
     let lastApply: Parameters<VideoHook["apply"]>[0] | null = null;
     let lastTakeover = true;
     let lastCues: Parameters<SubtitleLayer["setCues"]>[0] = null;
     let lastStyle: Parameters<SubtitleLayer["setStyle"]>[0] | null = null;
+    let lastHidden = false;
 
     const sendUp = (msg: FrameToPageMessage) => parent.postMessage(wrap(msg), "*");
 
@@ -92,13 +105,16 @@ export default defineContentScript({
       }
     };
 
-    /** This frame found a <video>: become the active player surface. */
+    /** This frame found a <video>: become the active player surface. Only does
+     *  anything once we've seen the room page's `hello` (i.e. we're in a party). */
     const engage = () => {
-      if (engaged) return;
+      if (engaged || !sawHello) return;
       engaged = true;
       overlay.mount();
       subtitles.mount();
       overlay.setTakeover(lastTakeover);
+      overlay.setHidden(lastHidden);
+      subtitles.setHidden(lastHidden);
       // Always forward the user's native-player actions to the room — the
       // overlay no longer blocks the native UI, so this is how "their iframe
       // player" stays in sync (not just our control bar).
@@ -111,6 +127,7 @@ export default defineContentScript({
     hook.onHookChange = (found) => {
       if (!found) return;
       engage();
+      if (!engaged) return; // not in a party (no hello yet) → stay silent
       // Notify the page on EVERY (re)hook, not just the first. When an embed
       // swaps its <video> (ad break / quality switch) the cached `lastApply`
       // position is stale; the page reacts by pulling a fresh `sync` so the new
@@ -144,6 +161,12 @@ export default defineContentScript({
     function handleDown(msg: PageToFrameMessage) {
       switch (msg.kind) {
         case "hello":
+          // We're in a party now — engage if a <video> is already hooked.
+          sawHello = true;
+          if (hook.currentTime() != null) {
+            engage();
+            if (engaged) sendUp({ kind: "hooked", found: true });
+          }
           sendUp({ kind: "ready" });
           break;
         case "apply":
@@ -168,6 +191,13 @@ export default defineContentScript({
         case "setSubtitleStyle":
           lastStyle = msg.style;
           if (engaged) subtitles.setStyle(msg.style);
+          break;
+        case "setHidden":
+          lastHidden = msg.hidden;
+          if (engaged) {
+            overlay.setHidden(msg.hidden);
+            subtitles.setHidden(msg.hidden);
+          }
           break;
       }
     }

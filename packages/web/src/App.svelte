@@ -6,6 +6,7 @@
   import Embed from "./components/Embed.svelte";
   import Join from "./components/Join.svelte";
   import Members from "./components/Members.svelte";
+  import SourcePanel from "./components/SourcePanel.svelte";
   import SubtitlePanel from "./components/SubtitlePanel.svelte";
   import { isPickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
   import { PageBridge } from "./lib/bridge";
@@ -223,77 +224,202 @@
   const joined = $derived(room !== null && nickname !== "");
   // How the current source is rendered: framed embed vs our own <video> player.
   const sourceKind = $derived(room?.sync?.srcKind ?? "embed");
+
+  // ── player UI state (M1) ──────────────────────────────────────────────────
+  let theater = $state(false);
+  let sidebarOpen = $state(true);
+  let activePanel = $state<"source" | "subs" | null>(null);
+  // Embed only: hand the surface to the site's own player (hide our overlay).
+  let sitePlayer = $state(false);
+  let playerArea = $state<HTMLElement | null>(null);
+  const canSitePlayer = $derived(sourceKind === "embed");
+  const showSidebar = $derived(!theater && sidebarOpen);
+
+  function togglePanel(p: "source" | "subs") {
+    activePanel = activePanel === p ? null : p;
+  }
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else playerArea?.requestFullscreen?.();
+  }
+  // Hide/show the in-iframe overlay for "use the site's player"; reset on direct.
+  $effect(() => {
+    bridge?.setHidden(sitePlayer && canSitePlayer);
+  });
+  $effect(() => {
+    if (!canSitePlayer && sitePlayer) sitePlayer = false;
+  });
 </script>
 
 {#if !joined}
   <Join room={loc.room} initialNick={nickname} onJoin={join} />
 {:else if room && bridge}
-  <div class="layout">
+  <div class="layout" class:full={!showSidebar}>
     <main>
-      {#if extMissing && sourceKind !== "direct"}
-        <div class="ext-warn">
-          ⚠ sixseven extension not detected — embedded playback can't sync. Install/enable it, then
-          reload. (Direct/HLS sources play without the extension.)
-        </div>
-      {:else if sourceKind === "embed" && room.sync?.src && room.me?.status === "failed"}
-        <div class="ext-warn">
-          ⚠ This source didn't load — it may block embedding (frame-forbidden) or be unreachable. Try
-          <strong>direct/HLS</strong> mode, a different source, or <strong>reload</strong>.
-        </div>
-      {/if}
-      {#if sourceKind === "direct" && room.sync?.src}
-        <DirectPlayer
-          src={room.sync.src}
-          sync={room.sync}
-          gate={room.gate}
-          {subs}
-          solo={room.members.length <= 1}
-          onStatus={onStatusReport}
-          onUserControl={onLocalControlReport}
-        />
-      {:else}
-        <Embed src={room.sync?.src ?? null} {bridge} />
-      {/if}
-      {#if showHud && sourceKind === "embed" && hud}
-        <div class="hud">
-          t={hud.t.toFixed(2)} · want={hud.want.toFixed(2)} · drift={hud.drift.toFixed(2)} ·
-          {room.sync?.intent}{room.gate.paused ? " · GATED" : ""}{room.members.length <= 1
-            ? " · solo"
-            : ` · ${room.members.length}`}
-        </div>
-      {/if}
-      <Controls {room} {pos} />
-      {#if subs}<SubtitlePanel {subs} />{/if}
-    </main>
-    <aside>
-      <div class="brand">
-        sixseven
-        <span class="conn {room.connected ? 'on' : 'off'}">
-          {room.connected ? "connected" : "reconnecting…"}
-        </span>
+      <div class="player-area" bind:this={playerArea}>
+        {#if sourceKind === "direct" && room.sync?.src}
+          <DirectPlayer
+            src={room.sync.src}
+            sync={room.sync}
+            gate={room.gate}
+            {subs}
+            solo={room.members.length <= 1}
+            onStatus={onStatusReport}
+            onUserControl={onLocalControlReport}
+          />
+        {:else}
+          <Embed src={room.sync?.src ?? null} {bridge} />
+        {/if}
+
+        <!-- overlays -->
+        {#if showHud && sourceKind === "embed" && hud}
+          <div class="hud">
+            t={hud.t.toFixed(2)} · want={hud.want.toFixed(2)} · drift={hud.drift.toFixed(2)} ·
+            {room.sync?.intent}{room.gate.paused ? " · GATED" : ""}{room.members.length <= 1
+              ? " · solo"
+              : ` · ${room.members.length}`}
+          </div>
+        {/if}
+
+        {#if !room.connected}
+          <div class="toast warn">reconnecting…</div>
+        {:else if pickerNotice}
+          <div class="toast {pickerNotice.ok ? 'ok' : 'bad'}">{pickerNotice.text}</div>
+        {/if}
+
+        {#if extMissing && sourceKind !== "direct"}
+          <div class="banner">
+            ⚠ sixseven extension not detected — embedded playback can't sync. Install/enable it,
+            then reload. (Direct/HLS sources play without the extension.)
+          </div>
+        {:else if sourceKind === "embed" && room.sync?.src && room.me?.status === "failed"}
+          <div class="banner">
+            ⚠ This source didn't load — it may block embedding or be unreachable. Try
+            <strong>direct/HLS</strong> mode (Source ⛓), a different source, or Reload.
+          </div>
+        {/if}
+
+        {#if sitePlayer}
+          <button class="restore" onclick={() => (sitePlayer = false)}>↩ sixseven controls</button>
+        {:else}
+          {#if activePanel === "source"}
+            <div class="popover">
+              <div class="pop-head"><span>Source</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close">✕</button></div>
+              <SourcePanel {room} />
+            </div>
+          {:else if activePanel === "subs" && subs}
+            <div class="popover">
+              <div class="pop-head"><span>Subtitles</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close">✕</button></div>
+              <SubtitlePanel {subs} />
+            </div>
+          {/if}
+          <div class="bar-wrap">
+            <Controls
+              {room}
+              {pos}
+              {activePanel}
+              onPanel={togglePanel}
+              {theater}
+              onTheater={() => (theater = !theater)}
+              {sidebarOpen}
+              onSidebar={() => (sidebarOpen = !sidebarOpen)}
+              onFullscreen={toggleFullscreen}
+              {canSitePlayer}
+              onSitePlayer={() => (sitePlayer = true)}
+            />
+          </div>
+        {/if}
       </div>
-      <Members {room} />
-      <ActivityLog {room} />
-    </aside>
+    </main>
+
+    {#if showSidebar}
+      <aside>
+        <div class="brand">
+          sixseven
+          <span class="conn {room.connected ? 'on' : 'off'}">
+            {room.connected ? "connected" : "reconnecting…"}
+          </span>
+        </div>
+        <Members {room} />
+        <ActivityLog {room} />
+      </aside>
+    {/if}
   </div>
 {/if}
 
 <style>
   .layout {
     display: grid;
-    grid-template-columns: 1fr 300px;
+    grid-template-columns: 1fr 320px;
     height: 100%;
+  }
+  .layout.full {
+    grid-template-columns: 1fr;
   }
   main {
     display: flex;
-    flex-direction: column;
     min-width: 0;
+    min-height: 0;
+    background: #000;
+  }
+  .player-area {
+    position: relative;
+    flex: 1;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    background: #000;
+  }
+  .bar-wrap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+  }
+  .popover {
+    position: absolute;
+    right: 12px;
+    bottom: 78px;
+    z-index: 25;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    max-height: calc(100% - 110px);
+    display: flex;
+    flex-direction: column;
+  }
+  .pop-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    font-weight: 600;
+  }
+  .pop-head .x {
+    padding: 2px 8px;
+    background: none;
+    border: none;
+    color: var(--muted);
+  }
+  .restore {
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.7);
+    border-color: rgba(255, 255, 255, 0.25);
+    color: #fff;
   }
   .hud {
-    position: fixed;
+    position: absolute;
     top: 8px;
     left: 8px;
-    z-index: 50;
+    z-index: 30;
     padding: 4px 8px;
     border-radius: 6px;
     background: rgba(0, 0, 0, 0.75);
@@ -301,12 +427,39 @@
     font: 12px/1.2 ui-monospace, monospace;
     pointer-events: none;
   }
-  .ext-warn {
+  .toast {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    pointer-events: none;
+  }
+  .toast.warn {
+    background: color-mix(in srgb, var(--warn) 85%, #000);
+    color: #000;
+  }
+  .toast.ok {
+    background: color-mix(in srgb, var(--good) 85%, #000);
+    color: #000;
+  }
+  .toast.bad {
+    background: color-mix(in srgb, var(--bad) 90%, #000);
+    color: #fff;
+  }
+  .banner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 22;
     padding: 8px 12px;
-    background: color-mix(in srgb, var(--bad) 22%, var(--bg));
+    background: color-mix(in srgb, var(--bad) 38%, #000);
     color: var(--text);
     font-size: 13px;
-    border-bottom: 1px solid var(--line);
   }
   aside {
     display: flex;

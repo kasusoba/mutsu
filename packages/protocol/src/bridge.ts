@@ -108,12 +108,20 @@ export interface SetSubtitleStyleMessage {
   style: SubtitleStyle;
 }
 
+/** Hide/show our in-iframe UI (badge + subtitle layer) — "use the site's own
+ *  player" escape hatch (SPEC §12). Sync still runs; we just stop drawing. */
+export interface SetHiddenMessage {
+  kind: "setHidden";
+  hidden: boolean;
+}
+
 export type PageToFrameMessage =
   | HelloMessage
   | ApplyMessage
   | OverlayMessage
   | SetSubtitlesMessage
-  | SetSubtitleStyleMessage;
+  | SetSubtitleStyleMessage
+  | SetHiddenMessage;
 
 // ── frame → page ────────────────────────────────────────────────────────────
 

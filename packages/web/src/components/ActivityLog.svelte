@@ -12,6 +12,11 @@
     return room.members.find((m) => m.id === id)?.name ?? "someone";
   }
 
+  /** Local HH:MM for a log event's timestamp. */
+  function fmtTime(at: number): string {
+    return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
   /** Short, human label for a source URL (its host) for the activity log. */
   function sourceLabel(url: string | undefined): string {
     if (!url) return "a new source";
@@ -56,7 +61,10 @@
   <h2>Activity</h2>
   <ul>
     {#each room.log.slice(-40).reverse() as e (e.id)}
-      <li>{describe(e)}</li>
+      <li>
+        <time datetime={new Date(e.at).toISOString()}>{fmtTime(e.at)}</time>
+        <span>{describe(e)}</span>
+      </li>
     {/each}
     {#if room.log.length === 0}
       <li class="muted">No activity yet.</li>
@@ -87,8 +95,17 @@
     gap: 5px;
   }
   li {
+    display: flex;
+    gap: 8px;
     font-size: 12px;
     color: var(--text);
+  }
+  time {
+    flex: none;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+    padding-top: 1px;
   }
   .muted {
     color: var(--muted);

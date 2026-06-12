@@ -100,6 +100,11 @@ export class SubtitleLayer {
     this.cueCalls++;
   }
 
+  /** Hide/show the subtitle overlay ("use the site's own player"). */
+  setHidden(hidden: boolean): void {
+    this.host.style.display = hidden ? "none" : "";
+  }
+
   setStyle(style: SubtitleStyle): void {
     this.style = style;
     this.styleCalls++;

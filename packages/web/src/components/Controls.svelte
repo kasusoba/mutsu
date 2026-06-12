@@ -1,30 +1,40 @@
 <script lang="ts">
-  import type { SourceKind } from "@sixseven/protocol";
   import type { RoomClient } from "../lib/room.svelte";
-  import { classifySource, extractSourceUrl } from "../lib/source";
 
   interface Props {
     room: RoomClient;
     pos: { t: number; dur: number; at: number };
+    /** Which side panel is open ("source" | "subs" | null), to highlight the button. */
+    activePanel: string | null;
+    onPanel: (p: "source" | "subs") => void;
+    theater: boolean;
+    onTheater: () => void;
+    sidebarOpen: boolean;
+    onSidebar: () => void;
+    onFullscreen: () => void;
+    /** Embed only: hand the surface to the site's own player (hide our overlay). */
+    canSitePlayer: boolean;
+    onSitePlayer: () => void;
   }
-  const { room, pos }: Props = $props();
+  const {
+    room,
+    pos,
+    activePanel,
+    onPanel,
+    theater,
+    onTheater,
+    sidebarOpen,
+    onSidebar,
+    onFullscreen,
+    canSitePlayer,
+    onSitePlayer,
+  }: Props = $props();
 
-  let srcInput = $state("");
-  let srcError = $state<string | null>(null);
-  // How to load the source: auto-detect by URL, force a framed page, or force
-  // our own <video> player (HLS / direct file).
-  let srcMode = $state<"auto" | "embed" | "direct">("auto");
-
-  // Scrubbing state — while dragging, show the dragged value and don't fight the
-  // incoming position reports.
   let scrubbing = $state(false);
   let scrubValue = $state(0);
-
-  // Hover preview: where on the timeline the cursor is pointing.
   let hoverX = $state(-1);
   let hoverTime = $state(0);
 
-  // A 250ms ticker so the displayed time advances smoothly between 1s reports.
   let tick = $state(0);
   $effect(() => {
     const id = setInterval(() => (tick = performance.now()), 250);
@@ -36,7 +46,6 @@
   const rate = $derived(room.sync?.rate ?? 1);
   const hasSrc = $derived(Boolean(room.sync?.src));
 
-  // Interpolated current time: last report + elapsed wall-clock if playing.
   const liveTime = $derived.by(() => {
     void tick;
     if (scrubbing) return scrubValue;
@@ -45,6 +54,7 @@
     return base + ((performance.now() - pos.at) / 1000) * rate;
   });
   const clampedTime = $derived(Math.min(Math.max(0, liveTime), pos.dur || liveTime));
+  const frac = $derived(pos.dur ? Math.min(1, clampedTime / pos.dur) : 0);
 
   function fmt(t: number): string {
     if (!Number.isFinite(t)) return "0:00";
@@ -55,7 +65,6 @@
     const mm = `${m}`.padStart(h ? 2 : 1, "0");
     return `${h ? `${h}:` : ""}${mm}:${`${sec}`.padStart(2, "0")}`;
   }
-
   function togglePlay() {
     room.control(playing ? "paused" : "playing", clampedTime, rate);
   }
@@ -71,247 +80,193 @@
     scrubbing = false;
   }
   function onScrubHover(e: MouseEvent) {
-    const el = e.currentTarget as HTMLElement;
-    const rect = el.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     hoverX = e.clientX - rect.left;
-    hoverTime = frac * (pos.dur || 0);
-  }
-  function onScrubLeave() {
-    hoverX = -1;
+    hoverTime = f * (pos.dur || 0);
   }
   function setRate(r: number) {
     room.control(room.sync?.intent ?? "paused", clampedTime, r);
   }
-  function setSource() {
-    const { url, error } = extractSourceUrl(srcInput);
-    if (error || !url) {
-      srcError = error ?? "Invalid source.";
-      return;
-    }
-    srcError = null;
-    const kind: SourceKind = srcMode === "auto" ? classifySource(url) : srcMode;
-    room.setSource(url, kind);
-    srcInput = "";
-  }
-
-  const currentSrc = $derived(room.sync?.src ?? null);
-  let copied = $state(false);
-  async function copySrc() {
-    if (!currentSrc) return;
-    try {
-      await navigator.clipboard.writeText(currentSrc);
-      copied = true;
-      setTimeout(() => (copied = false), 1500);
-    } catch {
-      // Clipboard blocked — drop it into the input so it can be copied manually.
-      srcInput = currentSrc;
-    }
-  }
-  // Re-set the same source (preserving its kind): reloads everyone's player
-  // (handy after an ephemeral token expired, or to recover a stuck player).
-  function reloadSrc() {
-    if (currentSrc) room.setSource(currentSrc, room.sync?.srcKind);
-  }
-  const currentKind = $derived(room.sync?.srcKind ?? "embed");
 </script>
 
 <div class="bar">
-  <!-- scrubber -->
-  <div class="row seek">
-    <span class="time">{fmt(clampedTime)}</span>
-    <div
-      class="scrub-wrap"
-      role="presentation"
-      onmousemove={onScrubHover}
-      onmouseleave={onScrubLeave}
-    >
-      <input
-        class="scrub"
-        type="range"
-        min="0"
-        max={pos.dur || 0}
-        step="0.1"
-        value={clampedTime}
-        disabled={!room.canControl || !hasSrc || !pos.dur}
-        oninput={onScrubInput}
-        onchange={onScrubCommit}
-      />
-      {#if hoverX >= 0 && pos.dur}
-        <span class="seek-tip" style="left: {hoverX}px">{fmt(hoverTime)}</span>
-      {/if}
+  <!-- seek -->
+  <div
+    class="scrub-wrap"
+    role="presentation"
+    onmousemove={onScrubHover}
+    onmouseleave={() => (hoverX = -1)}
+  >
+    <div class="track">
+      <div class="fill" style="width: {frac * 100}%"></div>
     </div>
-    <span class="time">{pos.dur ? fmt(pos.dur) : "--:--"}</span>
+    <input
+      class="scrub"
+      type="range"
+      min="0"
+      max={pos.dur || 0}
+      step="0.1"
+      value={clampedTime}
+      disabled={!room.canControl || !hasSrc || !pos.dur}
+      oninput={onScrubInput}
+      onchange={onScrubCommit}
+      aria-label="Seek"
+    />
+    {#if hoverX >= 0 && pos.dur}
+      <span class="seek-tip" style="left: {hoverX}px">{fmt(hoverTime)}</span>
+    {/if}
   </div>
 
-  <!-- transport -->
-  <div class="row">
-    <button class="play" onclick={togglePlay} disabled={!room.canControl || !hasSrc}>
-      {playing ? "⏸ Pause" : "▶ Play"}
+  <!-- controls -->
+  <div class="ctl">
+    <button class="ico play" onclick={togglePlay} disabled={!room.canControl || !hasSrc} title={playing ? "Pause" : "Play"}>
+      {playing ? "⏸" : "▶"}
     </button>
-    <button onclick={() => nudge(-10)} disabled={!room.canControl || !hasSrc}>−10s</button>
-    <button onclick={() => nudge(10)} disabled={!room.canControl || !hasSrc}>+10s</button>
+    <button class="ico" onclick={() => nudge(-10)} disabled={!room.canControl || !hasSrc} title="Back 10s">⏪</button>
+    <button class="ico" onclick={() => nudge(10)} disabled={!room.canControl || !hasSrc} title="Forward 10s">⏩</button>
 
-    <label class="rate">
-      speed
-      <select
-        value={rate}
-        disabled={!room.canControl || !hasSrc}
-        onchange={(e) => setRate(+e.currentTarget.value)}
-      >
-        {#each [0.5, 0.75, 1, 1.25, 1.5, 2] as r (r)}
-          <option value={r}>{r}×</option>
-        {/each}
-      </select>
-    </label>
+    <span class="time">{fmt(clampedTime)} <span class="sep">/</span> {pos.dur ? fmt(pos.dur) : "--:--"}</span>
 
     {#if room.gate.paused}
-      <span class="badge warn">buffering… ({room.gate.waitingFor.length})</span>
+      <span class="badge">buffering… {room.gate.waitingFor.length}</span>
     {/if}
 
     <span class="spacer"></span>
 
-    <button
-      onclick={() => room.setMode(mode === "host" ? "open" : "host")}
-      disabled={!room.canControl}
-      title="open = anyone controls; host = only the host"
-    >
-      mode: {mode}
+    <select class="rate" value={rate} disabled={!room.canControl || !hasSrc} onchange={(e) => setRate(+e.currentTarget.value)} title="Speed">
+      {#each [0.5, 0.75, 1, 1.25, 1.5, 2] as r (r)}
+        <option value={r}>{r}×</option>
+      {/each}
+    </select>
+
+    <button class="ico" class:on={activePanel === "subs"} onclick={() => onPanel("subs")} title="Subtitles">CC</button>
+    <button class="ico" class:on={activePanel === "source"} onclick={() => onPanel("source")} title="Source">⛓</button>
+    <button class="ico mode" onclick={() => room.setMode(mode === "host" ? "open" : "host")} disabled={!room.canControl} title="open = anyone controls; host = only the host">
+      {mode === "host" ? "🔒" : "🔓"}
     </button>
+    {#if canSitePlayer}
+      <button class="ico" onclick={onSitePlayer} title="Use the site's own player (hide sixseven overlay)">🎬</button>
+    {/if}
+    <button class="ico" class:on={!sidebarOpen} onclick={onSidebar} title="Toggle sidebar">▥</button>
+    <button class="ico" class:on={theater} onclick={onTheater} title="Theater mode">⬓</button>
+    <button class="ico" onclick={onFullscreen} title="Fullscreen">⛶</button>
   </div>
-
-  <!-- source -->
-  <div class="row">
-    <input
-      class="src"
-      bind:value={srcInput}
-      placeholder="paste an embed page, or an HLS/.mp4 URL…"
-      onkeydown={(e) => e.key === "Enter" && setSource()}
-    />
-    <label class="mode" title="How to load it: auto-detect, framed page, or our own HLS/file player">
-      <select bind:value={srcMode} disabled={!room.canControl}>
-        <option value="auto">auto</option>
-        <option value="embed">embed page</option>
-        <option value="direct">direct / HLS</option>
-      </select>
-    </label>
-    <button onclick={setSource} disabled={!room.canControl || !srcInput.trim()}>set source</button>
-  </div>
-  {#if srcError}<p class="src-err">{srcError}</p>{/if}
-
-  {#if currentSrc}
-    <div class="row cur">
-      <span class="cur-label">source · {currentKind}</span>
-      <input class="src cur-url" value={currentSrc} readonly title={currentSrc} />
-      <button onclick={copySrc} title="Copy the current source URL">{copied ? "copied ✓" : "copy"}</button>
-      <button onclick={reloadSrc} disabled={!room.canControl} title="Re-set the same source (reloads everyone's player)">
-        reload
-      </button>
-    </div>
-  {/if}
 </div>
 
 <style>
   .bar {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 10px 12px;
-    background: var(--panel);
-    border-top: 1px solid var(--line);
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .seek {
-    gap: 10px;
+    gap: 6px;
+    padding: 6px 12px 10px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.45) 70%, transparent);
   }
   .scrub-wrap {
     position: relative;
-    flex: 1;
+    height: 16px;
     display: flex;
+    align-items: center;
+  }
+  .track {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.25);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .fill {
+    height: 100%;
+    background: var(--accent);
   }
   .scrub {
-    flex: 1;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: none;
     accent-color: var(--accent);
+    opacity: 0; /* invisible native slider for interaction; we draw the track */
+    cursor: pointer;
+  }
+  .scrub:disabled {
+    cursor: default;
   }
   .seek-tip {
     position: absolute;
-    bottom: 18px;
+    bottom: 20px;
     transform: translateX(-50%);
     padding: 2px 6px;
     border-radius: 4px;
-    background: var(--panel-2);
-    border: 1px solid var(--line);
-    color: var(--text);
+    background: #000;
+    color: #fff;
     font-size: 11px;
     font-variant-numeric: tabular-nums;
     pointer-events: none;
     white-space: nowrap;
   }
-  .src {
-    flex: 1;
-  }
-  .cur-label {
-    font-size: 11px;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-  }
-  .cur-url {
-    color: var(--muted);
-    font-size: 12px;
-  }
-  .mode select {
-    font: inherit;
-    color: var(--text);
-    background: var(--bg);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 5px 6px;
-  }
-  .time {
-    font-variant-numeric: tabular-nums;
-    color: var(--muted);
-    font-size: 12px;
-    min-width: 44px;
-    text-align: center;
-  }
-  .play {
-    min-width: 92px;
-  }
-  .rate {
+  .ctl {
     display: flex;
     align-items: center;
     gap: 4px;
-    color: var(--muted);
-    font-size: 12px;
   }
-  .rate select {
-    font: inherit;
-    color: var(--text);
-    background: var(--bg);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 4px 6px;
+  .ico {
+    background: none;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 8px;
+    min-width: 34px;
+    color: #fff;
+    font-size: 15px;
+    line-height: 1;
+  }
+  .ico:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  .ico.on {
+    background: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .ico.play {
+    font-size: 18px;
+  }
+  .ico.mode {
+    font-size: 13px;
+  }
+  .time {
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    font-size: 12px;
+    padding: 0 6px;
+    white-space: nowrap;
+  }
+  .time .sep {
+    color: rgba(255, 255, 255, 0.5);
   }
   .spacer {
     flex: 1;
+  }
+  .rate {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.12);
+    border: none;
+    border-radius: 8px;
+    padding: 6px 6px;
+    font-size: 12px;
+  }
+  .rate option {
+    color: var(--text);
+    background: var(--panel);
   }
   .badge {
     padding: 3px 8px;
     border-radius: 999px;
     font-size: 12px;
-  }
-  .warn {
-    background: color-mix(in srgb, var(--warn) 20%, transparent);
-    color: var(--warn);
-  }
-  .src-err {
-    margin: 0;
-    color: var(--bad);
-    font-size: 12px;
+    background: color-mix(in srgb, var(--warn) 30%, transparent);
+    color: #fff;
   }
 </style>
