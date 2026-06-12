@@ -204,35 +204,29 @@ export class VideoHook {
       this.state = "failed";
       this.emit();
     });
-    // Native-UI play/pause. Two layers stop the echo loop that floods the room
-    // (and the activity log) with play/pause: (1) consume the event our own
-    // apply() caused; (2) only report a play/pause that actually DIFFERS from the
-    // intent the server already wants — a video merely doing what the server
-    // commanded is not a new user action. Genuine user changes still get through.
+    // The ONLY native event we treat as a user command is a `play` while the
+    // room is paused — that's the per-viewer autoplay gesture (clicking the
+    // embed's play button to start). We deliberately do NOT report native
+    // `pause`/`seeked`, because an embed (a foreign player we don't own) fires
+    // them for its OWN reasons — buffering, quality switches, reacting to our
+    // sync — and reporting those as commands makes the server `force` everyone
+    // to snap, which yanks the embed and feeds back as more jitter. Users
+    // pause/seek through the room controls instead.
     on("play", () => {
       if (this.expectPlay) {
         this.expectPlay = false;
         return;
       }
-      this.maybeLocalIntent("playing");
+      this.maybeLocalIntent("playing"); // guarded: only reports if it differs from the server
     });
     on("pause", () => {
-      if (this.expectPause) {
-        this.expectPause = false;
-        return;
-      }
-      this.maybeLocalIntent("paused");
+      this.expectPause = false; // consume our own; never report a native pause
     });
     on("seeked", () => {
       if (this.expectSeek != null && Math.abs(v.currentTime - this.expectSeek) <= DRIFT_THRESHOLD) {
         this.expectSeek = null;
-        this.recover(); // our own seek settled — re-evaluate readiness, don't report
-        return;
       }
-      // A genuine native scrub: relay the new position (server doesn't log seeks).
-      if (!this.applying && this.allowLocalControl) {
-        this.onLocalControl(v.paused ? "paused" : "playing", v.currentTime);
-      }
+      this.recover(); // re-evaluate readiness after a seek; never report it as control
     });
   }
 
