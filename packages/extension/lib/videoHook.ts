@@ -30,6 +30,9 @@ const STALL_DEBOUNCE_MS = 700;
 const SELF_SEEK_QUIET_MS = 1000;
 /** Coalesce DOM-mutation re-hook checks so a churny embed can't thrash the hook. */
 const REHOOK_DEBOUNCE_MS = 400;
+/** A native play/pause/seek within this long of a user gesture is a real user
+ *  action (worth syncing); without a recent gesture it's the embed buffering. */
+const GESTURE_WINDOW_MS = 700;
 // Multi-viewer drift correction (heartbeat ticks): glide via a small playbackRate
 // slew instead of a hard seek (the black-screen jump). Mirrors WebPlayer.
 const NUDGE_ZONE = 0.4;
@@ -59,6 +62,9 @@ export class VideoHook {
   private video: HTMLVideoElement | null = null;
   private last: ApplyState | null = null;
   private state: State = "loading";
+  /** performance.now() of the last user gesture in this frame (click/key). */
+  private lastGestureAt = 0;
+  private readonly gestureBound: Array<[string, EventListener]> = [];
   /** True while we are the ones mutating the video (suppresses echo events). */
   private applying = false;
   // Self-mutation bookkeeping: we consume the specific echo events our own
@@ -96,7 +102,22 @@ export class VideoHook {
     });
     this.observer.observe(document.documentElement, { childList: true, subtree: true });
 
+    // Track user gestures in this frame so a native play/pause/seek can be told
+    // apart from the embed's own buffering events (capture phase, passive).
+    const mark = () => {
+      this.lastGestureAt = performance.now();
+    };
+    for (const ev of ["pointerdown", "pointerup", "keydown"]) {
+      document.addEventListener(ev, mark, { capture: true, passive: true });
+      this.gestureBound.push([ev, mark]);
+    }
+
     this.poll = setInterval(() => this.tick(), STATUS_REPORT_MS);
+  }
+
+  /** Did the user interact with this frame in the last GESTURE_WINDOW_MS? */
+  private userActedRecently(): boolean {
+    return performance.now() - this.lastGestureAt < GESTURE_WINDOW_MS;
   }
 
   /** Current position of the hooked video, or null if none (for the subtitle layer). */
@@ -204,29 +225,37 @@ export class VideoHook {
       this.state = "failed";
       this.emit();
     });
-    // The ONLY native event we treat as a user command is a `play` while the
-    // room is paused — that's the per-viewer autoplay gesture (clicking the
-    // embed's play button to start). We deliberately do NOT report native
-    // `pause`/`seeked`, because an embed (a foreign player we don't own) fires
-    // them for its OWN reasons — buffering, quality switches, reacting to our
-    // sync — and reporting those as commands makes the server `force` everyone
-    // to snap, which yanks the embed and feeds back as more jitter. Users
-    // pause/seek through the room controls instead.
+    // Native-player control IS supported, but only as a real USER action: we
+    // report a native play/pause/seek only if it follows a user gesture in this
+    // frame. An embed (a foreign player) also fires these for its OWN reasons —
+    // buffering, quality switches, reacting to our sync — and reporting THOSE as
+    // commands makes the server `force` everyone to snap, which yanks the embed
+    // and feeds back as jitter. The gesture check keeps user clicks, drops noise.
     on("play", () => {
       if (this.expectPlay) {
         this.expectPlay = false;
         return;
       }
-      this.maybeLocalIntent("playing"); // guarded: only reports if it differs from the server
+      if (this.userActedRecently()) this.maybeLocalIntent("playing");
     });
     on("pause", () => {
-      this.expectPause = false; // consume our own; never report a native pause
+      if (this.expectPause) {
+        this.expectPause = false;
+        return;
+      }
+      if (this.userActedRecently()) this.maybeLocalIntent("paused");
     });
     on("seeked", () => {
       if (this.expectSeek != null && Math.abs(v.currentTime - this.expectSeek) <= DRIFT_THRESHOLD) {
         this.expectSeek = null;
+        this.recover();
+        return;
       }
-      this.recover(); // re-evaluate readiness after a seek; never report it as control
+      this.recover();
+      // A user scrub on the native scrubber → relay the new position.
+      if (this.userActedRecently() && !this.applying) {
+        this.onLocalControl(v.paused ? "paused" : "playing", v.currentTime);
+      }
     });
   }
 
@@ -355,6 +384,8 @@ export class VideoHook {
   destroy(): void {
     this.observer?.disconnect();
     if (this.poll) clearInterval(this.poll);
+    for (const [ev, fn] of this.gestureBound) document.removeEventListener(ev, fn, true);
+    this.gestureBound.length = 0;
     this.clearStall();
     if (this.video) this.detach(this.video);
   }
