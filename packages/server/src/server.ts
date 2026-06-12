@@ -231,7 +231,9 @@ export default class RoomServer implements Party.Server {
       case "skip":
         return this.handleSkip(sender, msg.memberId);
       case "resync":
-        this.send(sender, this.syncMessage(Date.now()));
+        // Not a command — let the client glide small drift (a brief reconnect)
+        // and only hard-seek if it's genuinely far off.
+        this.send(sender, this.syncMessage(Date.now(), false));
         this.send(sender, this.gateMessage());
         return;
     }
@@ -302,9 +304,12 @@ export default class RoomServer implements Party.Server {
 
     if (!isReconnect) this.appendLog({ kind: "joined", actor: sender.id, detail: name });
 
-    // Snapshot for the (re)joining client: who they are + current truth.
+    // Snapshot for the (re)joining client: who they are + current truth. The
+    // sync is force=false: a first join is far off → hard-seek catches up; a
+    // brief reconnect is ~in place → glide, don't snap (the tunnel-reconnect
+    // jitter). Real commands are what force a snap.
     this.send(sender, { type: "welcome", self: sender.id });
-    this.send(sender, this.syncMessage(Date.now()));
+    this.send(sender, this.syncMessage(Date.now(), false));
     this.send(sender, this.membersMessage());
     this.send(sender, this.gateMessage());
     for (const event of this.s.log.slice(-20)) this.send(sender, { type: "log", event });
