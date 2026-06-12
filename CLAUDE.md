@@ -74,7 +74,11 @@ on that side of the line.
 ## Conventions
 
 - Keep the sync protocol small and JSON; document any new message type in ARCHITECTURE.md.
-- Drift `THRESHOLD = 0.5s`; don't seek under it (avoids stutter).
+- Drift correction uses a **dead-zone**: the content script hard-seeks only when the video is
+  off by more than `SEEK_DEADZONE = 1.0s` (`extension/lib/videoHook.ts`). Real embed players
+  wander a few hundred ms while buffering; the old 0.5s threshold yanked the video every 3s
+  heartbeat (visible jitter). `DRIFT_THRESHOLD = 0.5s` remains the "in sync" notion / echo
+  tolerance. Don't tighten the dead-zone without testing on a real embed.
 - Prefer the cheapest hosting path that fits (free tiers first).
 - Update the relevant doc in the same change when behavior changes.
 
@@ -86,10 +90,33 @@ search) render, restyle, and time-shift. Server side also has automated checks: 
 → 23/23; subtitle proxy `packages/server/test/subs-smoke.mjs` (live OpenSubtitles+SubDL); `vtt.test.mts`.
 All four packages typecheck + build (Chromium + Firefox); Biome clean.
 
-**Next up:** the **video/iframe picker** — an extension popup that scans the tab you're browsing for
-`<video>`/`<iframe>` and hands the chosen URL to the open room page (which calls `setSource`).
-Designed but not started. Then Phase 4+ (paste-URL player, frame-forbidding own-tab fallback,
-embedded-track subs).
+The **video/iframe picker** is **built**: an extension popup (toolbar button) scans the active tab
+across all frames for `<video>`/`<iframe>` sources, discovers open room tabs (pings content scripts;
+the room page tags `<html>` with `data-sixseven-room`), and delivers the chosen URL to the room page
+(content script → `window.postMessage` → page re-validates → `setSource`). Manual paste box too.
+Shared types in `@sixseven/protocol/picker`; popup + scan in `packages/extension` (`entrypoints/popup`,
+`lib/picker.ts`); needs the `scripting` permission. See ARCHITECTURE "Source picker". Typechecks +
+builds (Chromium + Firefox); **pending the live real-embed verification run**.
+
+The **standalone paste-a-URL / HLS player** (Phase 4) is **built**: a source carries a `srcKind`
+(`embed` | `direct`). `direct` URLs (HLS `.m3u8` / video files) play in the room page's own
+same-origin `<video>` via `web/src/lib/webPlayer.ts` (`WebPlayer` — same drift/dead-zone/echo/gate
+logic as the extension's `VideoHook`) + `DirectPlayer.svelte` with **lazy-loaded hls.js**. **No
+extension needed** for direct sources. Kind is auto-detected by extension (`classifySource`) or
+forced via the source picker's mode dropdown (auto/embed/direct). It's content-neutral playback of
+a user-supplied URL — **not** stream extraction or header/referer forging (§3 holds): a token/referer-
+locked stream that 403s just won't load, and we say so. See ARCHITECTURE §4 "Source kinds".
+
+The direct player is **one-way** (`web/src/lib/webPlayer.ts`): it enforces server truth on our
+`<video>` but never reads its media events back as `control` (no localControl), so there's no
+video→server→video echo loop. Direct-source **control is UI-only** (the control bar + click-to-toggle
+on the video). It renders its **own subtitle overlay** in `DirectPlayer.svelte` from
+`SubtitleController` (no bridge). `?hud` on the room URL shows currentTime/server-time/drift.
+
+**Next up:** Phase 4 remainder (frame-forbidding own-tab fallback, YouTube iframe API), embedded-track subs.
+Embed-source subtitles still render via the in-iframe layer (bridge). The embed path keeps localControl
+(needed for the per-viewer autoplay gesture on cross-origin players) — if embed jitter persists, that's
+the place to look next.
 
 **Known caveats:** YouTube needs a user gesture per viewer before it'll play (autoplay policy);
 anti-devtools / sandboxed-iframe sites may not be hookable (we don't fight them — §3). A

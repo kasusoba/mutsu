@@ -1,14 +1,17 @@
 <script lang="ts">
-  import type { MemberStatus } from "@sixseven/protocol";
+  import type { Intent, MemberStatus, SyncMessage } from "@sixseven/protocol";
   import ActivityLog from "./components/ActivityLog.svelte";
   import Controls from "./components/Controls.svelte";
+  import DirectPlayer from "./components/DirectPlayer.svelte";
   import Embed from "./components/Embed.svelte";
   import Join from "./components/Join.svelte";
   import Members from "./components/Members.svelte";
   import SubtitlePanel from "./components/SubtitlePanel.svelte";
+  import { isPickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
   import { PageBridge } from "./lib/bridge";
   import { RoomClient } from "./lib/room.svelte";
   import { loadNickname, readRoomLocation, saveNickname } from "./lib/session";
+  import { classifySource, extractSourceUrl } from "./lib/source";
   import { SubtitleController } from "./lib/subtitleController.svelte";
 
   const loc = readRoomLocation();
@@ -21,6 +24,15 @@
   let pos = $state({ t: 0, dur: 0, at: 0 });
   // Extension presence: the content script tags <html> on our page if installed.
   let extMissing = $state(false);
+  // Transient banner for picker deliveries (SPEC §12) — the extension popup
+  // hands us a source URL it found on another tab.
+  let pickerNotice = $state<{ text: string; ok: boolean } | null>(null);
+  let pickerTimer: ReturnType<typeof setTimeout> | null = null;
+  function flashPicker(text: string, ok: boolean) {
+    pickerNotice = { text, ok };
+    if (pickerTimer) clearTimeout(pickerTimer);
+    pickerTimer = setTimeout(() => (pickerNotice = null), 5000);
+  }
 
   // De-dupe status reports to the server (the bridge reports every second).
   let lastStatus: MemberStatus | null = null;
@@ -41,19 +53,31 @@
     }
   }
 
+  // Shared by both player paths (iframe bridge + direct <video>): a readiness
+  // report drives the buffer gate and the scrubber position.
+  function onStatusReport(state: MemberStatus, currentTime: number, duration: number) {
+    if (state === "ready" || state === "stalled") clearFailTimer();
+    report(state);
+    pos = { t: currentTime, dur: duration, at: performance.now() };
+  }
+  function onLocalControlReport(intent: Intent, time: number) {
+    room?.control(intent, time);
+  }
+
   function join(nick: string) {
     saveNickname(nick);
     nickname = nick;
 
     const b = new PageBridge();
-    const r = new RoomClient(__PARTYKIT_HOST__, loc.room, loc.secret, nick);
+    // No configured host → talk to our own origin (the dev server proxies
+    // /parties to the local PartyKit; in prod set VITE_PARTYKIT_HOST). This lets
+    // one tunnel serve both the page and the backend for cross-device testing.
+    const host = __PARTYKIT_HOST__ || window.location.host;
+    const r = new RoomClient(host, loc.room, loc.secret, nick);
+    // Throttle resync requests across rapid (re)hooks (see b.onHooked).
+    let lastResyncAt = 0;
 
-    b.onStatus = (state, currentTime, duration) => {
-      // A real video frame is reporting — it's no longer a no-video failure.
-      if (state === "ready" || state === "stalled") clearFailTimer();
-      report(state);
-      pos = { t: currentTime, dur: duration, at: performance.now() };
-    };
+    b.onStatus = onStatusReport;
     const s = new SubtitleController(r, b);
 
     // Re-push personal subtitle state to a frame once it actually has the video.
@@ -65,19 +89,42 @@
       if (found) {
         clearFailTimer();
         s.resend();
+        // A frame that just (re)hooked a <video> may have loaded after the last
+        // `apply` (we no longer spam apply every second), so pull a freshly
+        // projected `sync` to enforce the current state on it. Throttle: an embed
+        // that churns its DOM can re-hook rapidly, and we don't want a resync storm.
+        const now = performance.now();
+        if (now - lastResyncAt > 1500) {
+          lastResyncAt = now;
+          r.resync();
+        }
       }
     };
     b.onReady = () => s.resend();
-    b.onLocalControl = (intent, time) => r.control(intent, time);
+    b.onLocalControl = onLocalControlReport;
 
     bridge = b;
     room = r;
     subs = s;
   }
 
-  // Forward the latest server truth into the iframe whenever it changes (SPEC §4).
+  // Forward the latest server truth into the iframe (SPEC §4). Only when the
+  // `sync` object itself changes (a fresh server-projected `time`) or the gate's
+  // pause flips — NOT on every no-op `gate` rebroadcast (~1/s from status
+  // reports). Re-applying a stale `sync.time` would make the content script seek
+  // backward to an old position every second (visible as jitter).
+  let lastAppliedSync: SyncMessage | null = null;
+  let lastGatePaused: boolean | null = null;
   $effect(() => {
-    if (room?.sync && bridge) bridge.apply(room.sync, room.gate);
+    if (!room?.sync || !bridge) return;
+    // Direct sources are driven by DirectPlayer, not the iframe bridge.
+    if (room.sync.srcKind === "direct") return;
+    const sync = room.sync;
+    const paused = room.gate.paused;
+    if (sync === lastAppliedSync && paused === lastGatePaused) return;
+    lastAppliedSync = sync;
+    lastGatePaused = paused;
+    bridge.apply(sync, room.gate);
   });
 
   // When the room source changes: clear personal subtitles (they belonged to the
@@ -107,14 +154,46 @@
     return () => clearTimeout(id);
   });
 
+  // While joined, tag <html> with the room name so the extension picker popup
+  // can recognise this tab as a sixseven room and deliver a picked source. The
+  // delivery arrives as a window message (posted by the content script on our
+  // own origin); we re-validate it exactly like a pasted URL and `setSource`.
+  $effect(() => {
+    if (!joined || !room) return;
+    const r = room;
+    document.documentElement.setAttribute(ROOM_ATTR, loc.room);
+    const onPick = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || !isPickSourceMessage(e.data)) return;
+      if (!r.canControl) {
+        flashPicker("Can't set source — host mode is on and you're not the host.", false);
+        return;
+      }
+      const { url, error } = extractSourceUrl(e.data.url);
+      if (error || !url) {
+        flashPicker(error ?? "The picker sent an invalid source.", false);
+        return;
+      }
+      r.setSource(url, classifySource(url));
+      flashPicker("Source set from the extension picker.", true);
+    };
+    window.addEventListener("message", onPick);
+    return () => {
+      window.removeEventListener("message", onPick);
+      document.documentElement.removeAttribute(ROOM_ATTR);
+    };
+  });
+
   $effect(() => {
     return () => {
       room?.destroy();
       bridge?.destroy();
+      if (pickerTimer) clearTimeout(pickerTimer);
     };
   });
 
   const joined = $derived(room !== null && nickname !== "");
+  // How the current source is rendered: framed embed vs our own <video> player.
+  const sourceKind = $derived(room?.sync?.srcKind ?? "embed");
 </script>
 
 {#if !joined}
@@ -122,12 +201,25 @@
 {:else if room && bridge}
   <div class="layout">
     <main>
-      {#if extMissing}
+      {#if extMissing && sourceKind !== "direct"}
         <div class="ext-warn">
-          ⚠ sixseven extension not detected — playback can't sync. Install/enable it, then reload.
+          ⚠ sixseven extension not detected — embedded playback can't sync. Install/enable it, then
+          reload. (Direct/HLS sources play without the extension.)
         </div>
       {/if}
-      <Embed src={room.sync?.src ?? null} {bridge} />
+      {#if sourceKind === "direct" && room.sync?.src}
+        <DirectPlayer
+          src={room.sync.src}
+          sync={room.sync}
+          gate={room.gate}
+          {subs}
+          solo={room.members.length <= 1}
+          onStatus={onStatusReport}
+          onUserControl={onLocalControlReport}
+        />
+      {:else}
+        <Embed src={room.sync?.src ?? null} {bridge} />
+      {/if}
       <Controls {room} {pos} />
       {#if subs}<SubtitlePanel {subs} />{/if}
     </main>

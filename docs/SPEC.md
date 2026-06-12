@@ -242,17 +242,22 @@ effective_play = (intent==='playing') AND (stalled is empty among non-skipped me
 - **P2 Room page + extension MVP** — 🟡 built, pending live browser test. Static room page
   (`packages/web`) embeds source iframe + holds the WS; extension (`packages/extension`) hooks the
   iframe `<video>`; clean overlay (+escape hatch); control-sync (0.5s); buffer gate (25s skip);
-  presence + log; re-hook on `<video>` swap. Builds + typechecks pass. *Remaining: share-to-room
-  picker UI (paste-URL works today) + the real-embed verification run.*
+  presence + log; re-hook on `<video>` swap. Builds + typechecks pass. **Share-to-room picker
+  done**: an extension popup scans the active tab (all frames) for `<video>`/`<iframe>` sources,
+  finds open room tabs, and delivers the chosen URL to the room page (which `setSource`s it). See
+  ARCHITECTURE "Source picker". *Remaining: the real-embed verification run for the picker.*
 - **P3 Subtitle overlay** — 🟡 built (proxy verified live; cue rendering pending browser test).
   Server-side **subtitle proxy** (OpenSubtitles + SubDL, normalize→VTT, member-gated) verified
   end-to-end (`test/subs-smoke.mjs` → 80 results + VTT download; `test/vtt.test.mts` green).
   Web: VTT/SRT parser + subtitle panel (upload + online search + offset/position/style). Extension:
   in-iframe cue renderer synced to `currentTime`+offset. *Remaining: embedded-track source + the
   browser render verification.*
-- **P4 Secondary paths** — standalone paste-a-URL/HLS player; YouTube via iframe API;
-  **frame-forbidding fallback** (own-tab sync); end-of-video "pick next." *Milestone: paste-a-URL
-  party + a working fallback for non-embeddable sites.*
+- **P4 Secondary paths** — 🟡 **standalone paste-a-URL/HLS player done**: sources carry a
+  `srcKind` (`embed`\|`direct`); `direct` URLs (HLS `.m3u8` / video files) play in the room page's
+  own `<video>` via `WebPlayer` + hls.js, no extension needed, same drift/gate logic as the embed
+  path (ARCHITECTURE §4 "Source kinds"). *Remaining: YouTube via iframe API; **frame-forbidding
+  fallback** (own-tab sync); end-of-video "pick next."* *Milestone: paste-a-URL party ✓ + a working
+  fallback for non-embeddable sites (pending).*
 - **P5 Host local file** — browser WebTorrent for web-seed files (no 2nd backend). *Milestone:
   share a local file without central upload.*
 - **P6 Polish & deploy** — Chromium+Firefox builds; unpacked → publish; 2-min join guide.

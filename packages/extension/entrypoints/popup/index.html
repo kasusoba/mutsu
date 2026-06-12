@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>sixseven — pick a source</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #15171c;
+        --panel: #1d2027;
+        --panel-2: #262a33;
+        --line: #2f343d;
+        --text: #e7e9ee;
+        --muted: #9aa0ad;
+        --accent: #6ea8fe;
+        --good: #5bd17b;
+        --bad: #f1707a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        width: 380px;
+        max-height: 560px;
+        overflow: hidden;
+        font: 13px/1.4 system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      header .brand {
+        font-weight: 600;
+        letter-spacing: 0.4px;
+      }
+      .target {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--panel);
+      }
+      .target label {
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .target select {
+        flex: 1;
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 4px 6px;
+        min-width: 0;
+      }
+      #list {
+        overflow-y: auto;
+        flex: 1;
+        min-height: 80px;
+      }
+      .cand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+        cursor: pointer;
+        width: 100%;
+        text-align: left;
+        background: none;
+        border-left: none;
+        border-right: none;
+        border-top: none;
+        color: inherit;
+        font: inherit;
+      }
+      .cand:hover {
+        background: var(--panel-2);
+      }
+      .cand:disabled {
+        cursor: default;
+        opacity: 0.6;
+      }
+      .ico {
+        flex: none;
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        background: var(--panel-2);
+        font-size: 14px;
+      }
+      .meta {
+        min-width: 0;
+        flex: 1;
+      }
+      .meta .url {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .meta .sub {
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tag {
+        flex: none;
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--good) 20%, transparent);
+        color: var(--good);
+      }
+      .empty {
+        padding: 16px 12px;
+        color: var(--muted);
+      }
+      .manual {
+        padding: 8px 12px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        gap: 8px;
+        background: var(--panel);
+      }
+      .manual input {
+        flex: 1;
+        min-width: 0;
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 8px;
+      }
+      button.send {
+        font: inherit;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      button.send:hover {
+        border-color: var(--accent);
+      }
+      #notice {
+        padding: 7px 12px;
+        font-size: 12px;
+        border-top: 1px solid var(--line);
+        display: none;
+      }
+      #notice.ok {
+        display: block;
+        color: var(--good);
+        background: color-mix(in srgb, var(--good) 14%, transparent);
+      }
+      #notice.err {
+        display: block;
+        color: var(--bad);
+        background: color-mix(in srgb, var(--bad) 14%, transparent);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <span class="brand">sixseven</span>
+      <span class="muted" id="count"></span>
+    </header>
+    <div class="target" id="targetRow" hidden>
+      <label for="room">send to</label>
+      <select id="room"></select>
+    </div>
+    <div id="list"></div>
+    <div id="notice"></div>
+    <div class="manual">
+      <input id="manualUrl" type="text" placeholder="…or paste an embed/source URL" />
+      <button class="send" id="manualSend">send</button>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

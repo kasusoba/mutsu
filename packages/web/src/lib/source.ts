@@ -5,9 +5,37 @@
  * room page — SPEC §4 embeds a *source*, not ourselves).
  */
 
+import type { SourceKind } from "@sixseven/protocol";
+
 export interface SourceResult {
   url?: string;
   error?: string;
+}
+
+const FILE_EXT = /\.(m3u8|mp4|webm|ogg|ogv|mov|m4v|mp3|m4a|aac|flac|wav)(\?|#|$)/i;
+
+/** True if the URL path looks like an HLS playlist. */
+export function isHlsUrl(url: string): boolean {
+  try {
+    return /\.m3u8(\?|#|$)/i.test(new URL(url).pathname + new URL(url).search);
+  } catch {
+    return /\.m3u8(\?|#|$)/i.test(url);
+  }
+}
+
+/**
+ * Best-effort auto-classification of a source URL (SPEC §15 P4). A recognizable
+ * media file / HLS playlist → `direct` (our `<video>` player); anything else →
+ * `embed` (framed page). Tokenized stream URLs without a file extension look
+ * like `embed` here — the user can override to `direct` in the source picker.
+ */
+export function classifySource(url: string): SourceKind {
+  try {
+    const u = new URL(url);
+    return FILE_EXT.test(u.pathname) ? "direct" : "embed";
+  } catch {
+    return "embed";
+  }
 }
 
 export function extractSourceUrl(input: string): SourceResult {

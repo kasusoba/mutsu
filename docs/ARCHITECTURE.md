@@ -89,7 +89,7 @@ Client → server:
 | type | payload | meaning |
 |---|---|---|
 | `join` | `{ secret, name }` | join a room; secret = capability-URL fragment (SPEC §10). Server replies with `welcome` + a snapshot |
-| `setSource` | `{ src }` | change the room's source; resets time to 0 (control-mode gated) |
+| `setSource` | `{ src, kind? }` | change the room's source; resets time to 0 (control-mode gated). `kind` = `embed`\|`direct` (default `embed`) — how clients render it |
 | `control` | `{ intent, time, rate? }` | user played/paused/seeked locally (accepted per control mode) |
 | `setMode` | `{ mode }` | switch room between `open` and `host` (control-mode gated) |
 | `passControl` | `{ toId }` | (host mode) hand control to another member |
@@ -101,7 +101,7 @@ Server → client:
 | type | payload | meaning |
 |---|---|---|
 | `welcome` | `{ self }` | admission ok; this connection's own member id |
-| `sync` | `{ src, intent, time, rate, mode, hostId }` | authoritative state, `time` already projected to now; apply it |
+| `sync` | `{ src, srcKind, intent, time, rate, mode, hostId, force }` | authoritative state, `time` already projected to now; apply it. `force:true` = a real command (snap to it); `false` = a heartbeat/presence tick (only large drift corrects) |
 | `members` | `{ list }` | presence list (`id, name, status`) |
 | `gate` | `{ paused, waitingFor }` | soft buffer gate; play only when `sync.intent==='playing'` AND `gate.paused===false` |
 | `log` | `{ event }` | one appended activity-log event (SPEC §11) |
@@ -131,6 +131,32 @@ truth to enforce) · `overlay { takeover }` (escape hatch) · `setSubtitles { cu
 Frame → page: `ready` · `hooked { found }` · `status { state, currentTime }` (every 1s + on
 events) · `localControl { intent, time }` (native-UI action when the escape hatch is open, which
 the page relays to the server as a `control`).
+
+### Source picker (extension popup → room page)
+
+"Share to room" (SPEC §12, §10.3) is an extension **popup** (toolbar button). It scans the tab
+you're browsing for `<video>`/`<iframe>` sources and hands the chosen URL to an open room page,
+which calls `setSource`. It moves a **URL only** (§2) — no scanning, ripping, or relaying of bytes.
+
+Three hops, no background worker (discovery is live, so it survives a suspended service worker):
+- **Scan:** the popup runs `collectFrameCandidates` via `chrome.scripting.executeScript` across
+  **all frames** of the active tab. Each frame returns its `<iframe>` srcs and `<video>` srcs;
+  a `blob:`/MSE video (no embeddable URL) falls back to that frame's own page URL. The popup
+  dedupes by URL and ranks (playing video first, then `/embed/` provider iframes per §4, then size).
+- **Discover rooms:** the popup pings every http(s) tab with `are-you-room`; the content script
+  (top frame) answers with the room name if the page set `data-sixseven-room` on `<html>` (the
+  web app sets it while joined). Matching tabs become the "send to" targets.
+- **Deliver:** the popup sends `deliver-source { url }` to the chosen room tab's content script,
+  which **`window.postMessage`s `pick-source { url }` to the room page on its own origin**. The
+  page re-validates the URL (same `extractSourceUrl` as the paste box — origin/protocol checks,
+  iframe-snippet unwrap) and calls `setSource` iff the viewer `canControl` (else a banner explains
+  host mode). The popup also has a manual paste box that delivers the same way.
+
+The page-facing message (`pick-source`) and the `data-sixseven-room` marker live in
+`packages/protocol/src/picker.ts` (`@sixseven/protocol/picker`) since both web and extension need
+them; the `are-you-room`/`deliver-source` runtime messages are extension-internal
+(`packages/extension/lib/picker.ts`). The popup needs the `scripting` permission (to scan) on top
+of the existing `<all_urls>` host permission (to read tab URLs and reach content scripts).
 
 ### Subtitle proxy (HTTP, member-gated)
 
@@ -163,16 +189,71 @@ the native UI. A full ad-hiding takeover is deferred.
 Runs in the in-iframe content script on each `apply` (the page's forward of the server `sync`):
 ```
 video.playbackRate = rate
-if (Math.abs(video.currentTime - time) > THRESHOLD)   // THRESHOLD = 0.5s
+if (Math.abs(video.currentTime - time) > SEEK_DEADZONE)   // SEEK_DEADZONE = 1.0s
     video.currentTime = time
 const shouldPlay = intent === 'playing' && !gatePaused   // gate = soft-pause (SPEC §9)
 shouldPlay ? video.play() : video.pause()
 ```
-- `THRESHOLD` prevents constant micro-seeking (which causes stutter).
+- **The seek dead-zone is a *band*, not a tight target.** Real embed players (YouTube, HLS)
+  wander a few hundred ms as they buffer/decode; at the old 0.5s threshold the 3s heartbeat
+  re-seeked the video back and forth every cycle — the visible "jitter". A ~1s dead-zone is
+  imperceptible over Discord voice yet still snaps genuine desyncs (a scrub, a fresh join, a
+  `<video>` swap). `DRIFT_THRESHOLD` (0.5s) is kept only as the echo-match tolerance.
+- On a `<video>` swap the content script re-notifies the page (`hooked`), which throttled-pulls a
+  fresh `sync` (`resync`) so the new element snaps to the live position, not a stale cached one.
 - The page sets the iframe `src`; the content script does not load sources (no extraction).
-- Self-initiated mutations are flagged so their echo events aren't reported as `localControl`.
-- Buffer readiness is derived from media events **and** a `readyState` poll fallback (events are
-  unreliable across players); no playable video within a 12s grace ⇒ `failed`, not `stalled`.
+- **The page only forwards `apply` on a *fresh* `sync` (new server-projected `time`) or a real
+  gate-pause flip — never on the ~1/s no-op `gate` rebroadcasts that status reports trigger.**
+  Re-applying a stale `time` between 3s heartbeats would make the content script seek backward to
+  an old position every second (visible as jitter). Correspondingly, when the **server** flips the
+  gate it rebases the clock and broadcasts a fresh `sync` (before the `gate` message), so clients
+  seek to the current position, not a stale one.
+- **Echo suppression is event-matched, not timer-based.** Our own `apply()` causes `seeked`/`play`/
+  `pause` events asynchronously (often >50ms later, while re-buffering). We mark the exact event we
+  expect (the seek target / a play / a pause) and consume it when it lands, so a self-induced event
+  is never misreported as a user `localControl` (which would re-base the server clock or flip
+  `intent` to a hard pause — the old fixed 50ms window let these leak and caused jitter, stray
+  pauses, and missing play/pause log entries).
+- **Stall detection is conservative** (avoids self-gating a solo viewer): a stall is reported only
+  when the room is meant to be playing AND playback isn't advancing AND `readyState < 3`, and it is
+  **debounced ~700ms** so a transient dip (HLS segment boundary) doesn't soft-pause the room.
+  `readyState` dips in the ~1s after our own seek are ignored (seeking naturally dips it). No
+  playable video within the page's ~15s grace ⇒ `failed`, not `stalled`.
+
+### Source kinds: embed vs direct (SPEC §15 P4)
+
+A source carries a **`srcKind`** (`SetSource { src, kind? }` → `Sync { src, srcKind }`). It picks
+how every client renders the source:
+
+- **`embed`** (default) — `src` is a framable page. The room page loads it in an `<iframe>` and
+  the extension content script hooks the `<video>` inside (everything in §3–§4 above).
+- **`direct`** — `src` is a raw media URL (HLS `.m3u8` or a video file). The room page plays it in
+  its **own same-origin `<video>`** via `WebPlayer` (`web/src/lib/webPlayer.ts`): the SPEC §4 drift
+  dead-zone + buffer-gate status reporting, driven directly because the element is first-party.
+  **No extension needed.** It is deliberately **one-way** — the player enforces server truth onto
+  the element but never turns the element's own media events into `control` messages. Every state
+  change is therefore either ours (an apply) or buffering, never mistaken for a user intent — which
+  removes the video→server→video echo loop that the bidirectional embed path is prone to (the
+  source of jitter and unreliable play/pause logging). **User input on a direct source flows only
+  through the room UI** (the control bar + click-to-toggle on the video) → explicit `control`.
+  `DirectPlayer.svelte` renders the personal subtitle overlay itself (from `SubtitleController`,
+  no bridge) and loads HLS with **hls.js** (lazy-imported into its own chunk; native HLS on Safari;
+  plain `<video src>` for `.mp4`/`.webm`; ambiguous extension-less URLs try hls.js then fall back).
+  Add `?hud` to the room URL for an on-video readout of `currentTime` vs the server `time` + drift.
+
+  **Drift model (`WebPlayer`):** the server tags each `sync` with `force` (real command vs
+  heartbeat/presence tick — see the protocol table). A `force` sync always snaps. On a heartbeat a
+  **solo** viewer is left alone (the video just plays — forcing realtime only rebuffers it for
+  nobody); a **multi** viewer glides back into sync via a small `playbackRate` slew (≤8%, the
+  `NUDGE_ZONE`→`HARD_SEEK` band) and only hard-seeks for a >3s desync. This replaced hard-seeking
+  every ~1s drift, which showed up as periodic black-screen jitter. Presence/mode/skip/gate events
+  are `force:false` so a buffering or reconnecting peer never yanks the others.
+
+The kind is chosen when the source is set: the web auto-detects by file extension (`classifySource`)
+or the user forces `embed`/`direct` in the source picker. It is **content-neutral playback of a URL
+the user supplies** — sixseven does not extract stream URLs out of pages or forge `Referer`/headers
+to defeat a site's hotlink/token protection (§3 lines hold). A protected stream that 403s without
+its origin's referer simply won't load, and we surface that rather than bypass it.
 
 ## 5. Frontend
 

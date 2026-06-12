@@ -27,6 +27,7 @@ import {
   type Mode,
   SKIP_GRACE_MS,
   type ServerMessage,
+  type SourceKind,
   encode,
   parseClientMessage,
 } from "@sixseven/protocol";
@@ -36,6 +37,8 @@ import { QuotaError, type SubEnv, downloadSubtitle, searchSubtitles } from "./su
 /** Per-room authoritative state, persisted under a single storage key. */
 interface RoomState {
   src: string | null;
+  /** How clients render `src`: framed embed, or our own direct player (SPEC §15 P4). */
+  srcKind: SourceKind;
   intent: Intent;
   /** Position (s) as of `updatedAt`. */
   time: number;
@@ -72,6 +75,7 @@ const LOG_CAP = 100;
 function freshState(): RoomState {
   return {
     src: null,
+    srcKind: "embed",
     intent: "paused",
     time: 0,
     rate: 1,
@@ -103,7 +107,30 @@ export default class RoomServer implements Party.Server {
   async onStart(): Promise<void> {
     const saved = await this.room.storage.get<RoomState>(STORAGE_KEY);
     if (saved) this.s = saved;
+    if (!this.s.srcKind) this.s.srcKind = "embed"; // storage predating srcKind
+    // A (re)start drops every socket, but `members` was persisted — so anything
+    // left over is a GHOST with no live connection. Prune them, or they sit in
+    // presence (and possibly the gate, freezing the clock) forever. Real clients
+    // re-join when their socket reconnects.
+    this.pruneGhosts();
     this.loaded = true;
+  }
+
+  /** Drop members that no longer have a live connection (stale presence). */
+  private pruneGhosts(): boolean {
+    const live = new Set<string>();
+    for (const conn of this.room.getConnections()) live.add(conn.id);
+    let changed = false;
+    for (const id of Object.keys(this.s.members)) {
+      if (live.has(id)) continue;
+      delete this.s.members[id];
+      delete this.s.waitingSince[id];
+      this.s.stalled = this.s.stalled.filter((x) => x !== id);
+      this.s.skipped = this.s.skipped.filter((x) => x !== id);
+      changed = true;
+    }
+    if (changed) this.recomputeGate();
+    return changed;
   }
 
   private async persist(): Promise<void> {
@@ -192,7 +219,7 @@ export default class RoomServer implements Party.Server {
 
     switch (msg.type) {
       case "setSource":
-        return this.handleSetSource(sender, msg.src);
+        return this.handleSetSource(sender, msg.src, msg.kind);
       case "control":
         return this.handleControl(sender, msg.intent, msg.time, msg.rate);
       case "setMode":
@@ -240,7 +267,10 @@ export default class RoomServer implements Party.Server {
     this.recomputeGate(); // membership change may clear the gate
     this.broadcastMembers();
     this.broadcastGate();
-    this.broadcastSync();
+    // A peer leaving is a presence change, not a playback command — `force:false`
+    // so the remaining viewers don't snap/seek. (With 2 devices over a flaky
+    // tunnel, peer drops/reconnects were forcing seeks on the other device.)
+    this.broadcastSync(false);
     await this.persist();
   }
 
@@ -259,6 +289,10 @@ export default class RoomServer implements Party.Server {
       sender.close(4001, "unauthorized");
       return;
     }
+
+    // Clear out any dead peers first (e.g. a tab that closed without a clean
+    // disconnect) so presence reflects who's actually here.
+    this.pruneGhosts();
 
     const name = (msg.name ?? "").trim() || "anon";
     const isReconnect = Boolean(this.s.members[sender.id]);
@@ -279,11 +313,16 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handleSetSource(sender: Party.Connection, src: string): Promise<void> {
+  private async handleSetSource(
+    sender: Party.Connection,
+    src: string,
+    kind?: SourceKind,
+  ): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
 
     const now = Date.now();
     this.s.src = src;
+    this.s.srcKind = kind === "direct" ? "direct" : "embed";
     this.s.intent = "paused";
     this.s.time = 0;
     this.s.rate = 1;
@@ -342,7 +381,7 @@ export default class RoomServer implements Party.Server {
     this.s.mode = mode;
     this.s.hostId = mode === "host" ? sender.id : null;
     this.appendLog({ kind: "modeChanged", actor: sender.id, detail: mode });
-    this.broadcastSync();
+    this.broadcastSync(false); // mode change carries no new position — don't seek
     await this.persist();
   }
 
@@ -353,7 +392,7 @@ export default class RoomServer implements Party.Server {
 
     this.s.hostId = toId;
     this.appendLog({ kind: "passedControl", actor: sender.id, target: toId });
-    this.broadcastSync();
+    this.broadcastSync(false); // host handoff carries no new position — don't seek
     await this.persist();
   }
 
@@ -373,8 +412,14 @@ export default class RoomServer implements Party.Server {
       this.s.skipped = this.s.skipped.filter((id) => id !== sender.id);
     }
 
-    this.recomputeGate();
+    const gateFlipped = this.recomputeGate();
     this.broadcastMembers();
+    // On a gate flip the clock was rebased — push a fresh `sync` so clients
+    // project from the current position, not a stale one. But mark it
+    // `force:false`: a gate flip is a soft pause/resume, not a command, so it
+    // should only correct genuinely-large drift (>1s), never snap on a 0.3s
+    // wobble — otherwise a buffering peer makes everyone jitter.
+    if (gateFlipped) this.broadcastSync(false);
     this.broadcastGate();
     await this.scheduleHeartbeat();
     await this.persist();
@@ -393,7 +438,7 @@ export default class RoomServer implements Party.Server {
     this.recomputeGate(); // skipping may release the gate — but never moves in-sync members
     this.broadcastMembers();
     this.broadcastGate();
-    this.broadcastSync();
+    this.broadcastSync(false); // skip resumes in place — in-sync members must not seek
     await this.persist();
   }
 
@@ -429,14 +474,21 @@ export default class RoomServer implements Party.Server {
 
   /**
    * Recompute the soft gate. If the effective-playing state flips, rebase the
-   * clock first so the projected position freezes/resumes cleanly.
+   * clock first so the projected position freezes/resumes cleanly. Returns
+   * whether the gate flipped — callers must then broadcast a fresh `sync`, since
+   * rebasing moved `time`/`updatedAt` and any stale client `time` would seek.
    */
-  private recomputeGate(): void {
-    const shouldGate = this.s.intent === "playing" && this.blockingMembers().length > 0;
-    if (shouldGate !== this.s.gated) {
-      this.rebase(Date.now());
-      this.s.gated = shouldGate;
-    }
+  private recomputeGate(): boolean {
+    // Never gate a solo room: there's no one to wait for, and gating yourself
+    // freezes the server clock while your own video keeps playing — which then
+    // makes every heartbeat seek you backward (the reported 3s-cycle jitter).
+    const memberCount = Object.keys(this.s.members).length;
+    const shouldGate =
+      memberCount > 1 && this.s.intent === "playing" && this.blockingMembers().length > 0;
+    if (shouldGate === this.s.gated) return false;
+    this.rebase(Date.now());
+    this.s.gated = shouldGate;
+    return true;
   }
 
   // ── heartbeat + auto-skip (SPEC §7, §9) ───────────────────────────────────
@@ -476,8 +528,9 @@ export default class RoomServer implements Party.Server {
       this.broadcastGate();
     }
 
-    // Heartbeat to mop up slow drift while actually playing (SPEC §7).
-    if (this.effectivePlaying()) this.broadcastSync();
+    // Heartbeat to mop up slow drift while actually playing (SPEC §7). Marked
+    // force=false so a solo viewer doesn't snap to it mid-playback (the jitter).
+    if (this.effectivePlaying()) this.broadcastSync(false);
 
     // Re-arm while still playing; otherwise let the alarm lapse.
     if (this.s.intent === "playing") {
@@ -512,15 +565,18 @@ export default class RoomServer implements Party.Server {
 
   // ── message builders / senders ────────────────────────────────────────────
 
-  private syncMessage(now: number): ServerMessage {
+  /** `force` = a real command (snap to it); false = a routine heartbeat tick. */
+  private syncMessage(now: number, force = true): ServerMessage {
     return {
       type: "sync",
       src: this.s.src,
+      srcKind: this.s.srcKind ?? "embed",
       intent: this.s.intent,
       time: this.projectedTime(now),
       rate: this.s.rate,
       mode: this.s.mode,
       hostId: this.s.hostId,
+      force,
     };
   }
 
@@ -544,8 +600,9 @@ export default class RoomServer implements Party.Server {
     this.room.broadcast(encode({ type: "log", event }));
   }
 
-  private broadcastSync(): void {
-    this.room.broadcast(encode(this.syncMessage(Date.now())));
+  /** `force` defaults true (a command); the heartbeat passes false. */
+  private broadcastSync(force = true): void {
+    this.room.broadcast(encode(this.syncMessage(Date.now(), force)));
   }
 
   private broadcastMembers(): void {

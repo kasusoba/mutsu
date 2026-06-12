@@ -71,10 +71,21 @@ export interface JoinMessage {
   name: string;
 }
 
-/** Privileged (control-mode gated): pick the source everyone embeds (SPEC §12). */
+/**
+ * How a source is rendered (SPEC §15 P4):
+ * - `embed`  : a framable page → loaded in an `<iframe>`, hooked by the extension.
+ * - `direct` : a raw media URL (HLS `.m3u8` / a video file) → played in our own
+ *   `<video>` (hls.js) on the room page. Content-neutral: it plays whatever URL
+ *   it's given; it does NOT extract streams from pages or forge headers (§3).
+ */
+export type SourceKind = "embed" | "direct";
+
+/** Privileged (control-mode gated): pick the source everyone loads (SPEC §12). */
 export interface SetSourceMessage {
   type: "setSource";
   src: string;
+  /** How to render `src`. Omitted ⇒ server defaults to `embed`. */
+  kind?: SourceKind;
 }
 
 /** Play / pause / seek. `time` is the target position in seconds. */
@@ -143,11 +154,21 @@ export interface WelcomeMessage {
 export interface SyncMessage {
   type: "sync";
   src: string | null;
+  /** How the client should render `src` (SPEC §15 P4). */
+  srcKind: SourceKind;
   intent: Intent;
   time: number;
   rate: number;
   mode: Mode;
   hostId: MemberId | null;
+  /**
+   * True when this sync is a real **command** (play/pause/seek/setSource/join/
+   * resync/correct) the client must snap to. False for a routine **heartbeat**
+   * tick. A solo viewer ignores heartbeat drift (only honors commands) so it's
+   * never yanked to realtime mid-playback; multi-viewers still drift-correct on
+   * heartbeats to stay aligned.
+   */
+  force: boolean;
 }
 
 /** Full presence list (SPEC §11). */
@@ -192,8 +213,16 @@ export type ServerMessage =
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────
 
-/** Drift threshold (s) — don't seek under this to avoid stutter (SPEC §7). */
+/** Drift threshold (s) — the "in sync" notion / echo-match tolerance (SPEC §7). */
 export const DRIFT_THRESHOLD = 0.5;
+
+/**
+ * Seek dead-zone (s): a client hard-seeks to re-sync only when off by more than
+ * this. Real players wander a few hundred ms while buffering; correcting at the
+ * tight `DRIFT_THRESHOLD` every heartbeat caused visible jitter. Shared by the
+ * extension content script and the room-page direct player.
+ */
+export const SEEK_DEADZONE = 1.0;
 
 /** Heartbeat interval (ms) while playing (SPEC §7). */
 export const HEARTBEAT_MS = 3000;

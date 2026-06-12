@@ -12,9 +12,13 @@ export default defineConfig({
   manifest: {
     name: "sixseven",
     description: "Keep a watch party's video playback in sync.",
-    // No special API permissions needed — a content script in the embed frame
-    // is enough. host_permissions lets it run inside cross-origin iframes.
-    permissions: [],
+    // `scripting` lets the picker popup scan the active tab for <video>/<iframe>
+    // sources (SPEC §12). The content script in the embed frame needs no API
+    // permission; host_permissions lets it run inside cross-origin iframes and
+    // lets the popup read tab URLs to find the room tab.
+    permissions: ["scripting"],
     host_permissions: ["<all_urls>"],
+    // The toolbar button opens the "share to room" picker — WXT wires the action
+    // from the popup entrypoint and takes its tooltip from the popup's <title>.
   },
 });

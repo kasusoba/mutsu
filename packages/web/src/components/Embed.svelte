@@ -15,6 +15,10 @@
   function onLoad() {
     bridge.setFrame(iframe?.contentWindow ?? null);
   }
+
+  // On unmount (e.g. switching to a direct source), drop the bridge's frame
+  // reference so it doesn't postMessage to a detached iframe window.
+  $effect(() => () => bridge.setFrame(null));
 </script>
 
 <div class="stage">

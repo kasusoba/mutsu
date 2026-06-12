@@ -13,6 +13,7 @@ import {
   type Member,
   type MemberId,
   type Mode,
+  type SourceKind,
   type SyncMessage,
   parseServerMessage,
 } from "@sixseven/protocol";
@@ -68,7 +69,12 @@ export class RoomClient {
         this.gate = msg;
         break;
       case "log":
-        this.log = [...this.log, msg.event].slice(-100);
+        // Dedupe by id: on reconnect the server replays its recent log, so the
+        // same events arrive again. Appending duplicates crashes the keyed
+        // {#each} in ActivityLog (each_key_duplicate) and freezes the whole log.
+        if (!this.log.some((e) => e.id === msg.event.id)) {
+          this.log = [...this.log, msg.event].slice(-100);
+        }
         break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
@@ -82,8 +88,8 @@ export class RoomClient {
 
   // ── intents from the UI / bridge ──────────────────────────────────────────
 
-  setSource(src: string): void {
-    this.send({ type: "setSource", src });
+  setSource(src: string, kind?: SourceKind): void {
+    this.send({ type: "setSource", src, kind });
   }
   control(intent: Intent, time: number, rate?: number): void {
     this.send({ type: "control", intent, time, rate });
@@ -99,6 +105,10 @@ export class RoomClient {
   }
   reportStatus(state: Member["status"]): void {
     this.send({ type: "status", state });
+  }
+  /** Ask the server for a freshly-projected `sync` (e.g. when a frame newly hooks). */
+  resync(): void {
+    this.send({ type: "resync" });
   }
 
   // ── subtitle proxy (SPEC §13) ─────────────────────────────────────────────

@@ -1,6 +1,7 @@
 <script lang="ts">
+  import type { SourceKind } from "@sixseven/protocol";
   import type { RoomClient } from "../lib/room.svelte";
-  import { extractSourceUrl } from "../lib/source";
+  import { classifySource, extractSourceUrl } from "../lib/source";
 
   interface Props {
     room: RoomClient;
@@ -10,6 +11,9 @@
 
   let srcInput = $state("");
   let srcError = $state<string | null>(null);
+  // How to load the source: auto-detect by URL, force a framed page, or force
+  // our own <video> player (HLS / direct file).
+  let srcMode = $state<"auto" | "embed" | "direct">("auto");
 
   // Scrubbing state — while dragging, show the dragged value and don't fight the
   // incoming position reports.
@@ -86,9 +90,30 @@
       return;
     }
     srcError = null;
-    room.setSource(url);
+    const kind: SourceKind = srcMode === "auto" ? classifySource(url) : srcMode;
+    room.setSource(url, kind);
     srcInput = "";
   }
+
+  const currentSrc = $derived(room.sync?.src ?? null);
+  let copied = $state(false);
+  async function copySrc() {
+    if (!currentSrc) return;
+    try {
+      await navigator.clipboard.writeText(currentSrc);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {
+      // Clipboard blocked — drop it into the input so it can be copied manually.
+      srcInput = currentSrc;
+    }
+  }
+  // Re-set the same source (preserving its kind): reloads everyone's player
+  // (handy after an ephemeral token expired, or to recover a stuck player).
+  function reloadSrc() {
+    if (currentSrc) room.setSource(currentSrc, room.sync?.srcKind);
+  }
+  const currentKind = $derived(room.sync?.srcKind ?? "embed");
 </script>
 
 <div class="bar">
@@ -160,12 +185,30 @@
     <input
       class="src"
       bind:value={srcInput}
-      placeholder="paste an embed/source URL or <iframe> code…"
+      placeholder="paste an embed page, or an HLS/.mp4 URL…"
       onkeydown={(e) => e.key === "Enter" && setSource()}
     />
+    <label class="mode" title="How to load it: auto-detect, framed page, or our own HLS/file player">
+      <select bind:value={srcMode} disabled={!room.canControl}>
+        <option value="auto">auto</option>
+        <option value="embed">embed page</option>
+        <option value="direct">direct / HLS</option>
+      </select>
+    </label>
     <button onclick={setSource} disabled={!room.canControl || !srcInput.trim()}>set source</button>
   </div>
   {#if srcError}<p class="src-err">{srcError}</p>{/if}
+
+  {#if currentSrc}
+    <div class="row cur">
+      <span class="cur-label">source · {currentKind}</span>
+      <input class="src cur-url" value={currentSrc} readonly title={currentSrc} />
+      <button onclick={copySrc} title="Copy the current source URL">{copied ? "copied ✓" : "copy"}</button>
+      <button onclick={reloadSrc} disabled={!room.canControl} title="Re-set the same source (reloads everyone's player)">
+        reload
+      </button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -210,6 +253,24 @@
   }
   .src {
     flex: 1;
+  }
+  .cur-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .cur-url {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .mode select {
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 6px;
   }
   .time {
     font-variant-numeric: tabular-nums;

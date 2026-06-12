@@ -16,8 +16,21 @@
 
 import type { FrameToPageMessage, PageToFrameMessage } from "@sixseven/protocol/bridge";
 import { unwrap, wrap } from "@sixseven/protocol/bridge";
+import {
+  PICKER_TAG,
+  type PickSourceMessage,
+  ROOM_ATTR,
+} from "@sixseven/protocol/picker";
+import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/sandbox";
 import { Overlay } from "../lib/overlay";
+import {
+  type AreYouRoomReply,
+  type DeliverSourceReply,
+  PICKER_DELIVER,
+  PICKER_PING,
+  type PickerRuntimeMessage,
+} from "../lib/picker";
 import { SubtitleLayer } from "../lib/subtitleLayer";
 import { VideoHook } from "../lib/videoHook";
 
@@ -33,6 +46,28 @@ export default defineContentScript({
     // the user if it isn't (no extension ⇒ no bridge ⇒ nothing syncs).
     if (window.top === window.self) {
       document.documentElement.setAttribute("data-sixseven-ext", "1");
+
+      // Picker bridge (SPEC §12): the popup discovers room tabs and delivers the
+      // chosen source URL through us, since it can't script the room page's
+      // Svelte state. We only translate — the page re-validates and decides.
+      browser.runtime.onMessage.addListener((raw: unknown) => {
+        const msg = raw as PickerRuntimeMessage | null;
+        if (!msg || typeof msg !== "object") return;
+        if (msg.type === PICKER_PING) {
+          const reply: AreYouRoomReply = {
+            room: document.documentElement.getAttribute(ROOM_ATTR),
+          };
+          return Promise.resolve(reply);
+        }
+        if (msg.type === PICKER_DELIVER && typeof msg.url === "string") {
+          // Hand it to the room page on its own origin; the page calls setSource.
+          const pick: PickSourceMessage = { tag: PICKER_TAG, kind: "pick-source", url: msg.url };
+          window.postMessage(pick, window.location.origin);
+          const reply: DeliverSourceReply = { ok: true };
+          return Promise.resolve(reply);
+        }
+        return; // not ours — let other listeners (if any) handle it
+      });
       return;
     }
 
@@ -71,11 +106,16 @@ export default defineContentScript({
       if (lastStyle) subtitles.setStyle(lastStyle);
       subtitles.setCues(lastCues);
       if (lastApply) hook.apply(lastApply);
-      sendUp({ kind: "hooked", found: true });
     };
 
     hook.onHookChange = (found) => {
-      if (found) engage();
+      if (!found) return;
+      engage();
+      // Notify the page on EVERY (re)hook, not just the first. When an embed
+      // swaps its <video> (ad break / quality switch) the cached `lastApply`
+      // position is stale; the page reacts by pulling a fresh `sync` so the new
+      // element snaps to the correct time instead of an old one.
+      sendUp({ kind: "hooked", found: true });
     };
     hook.onStatus = (state, currentTime, duration) => {
       if (engaged) sendUp({ kind: "status", state, currentTime, duration });

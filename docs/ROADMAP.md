@@ -53,8 +53,10 @@ sync against a real embed is the next verification step** (manual).
 - [x] **Buffer gate:** soft-pause on stall, 25s skip valve, `readyState` fallback signal.
 - [x] Members/presence + activity-log panel (page sidebar).
 - [x] Handle the `<video>` appearing late / being swapped (`MutationObserver`; `failed` after 12s grace).
-- [ ] **Remaining:** "Share to room" popup + multi-`<video>` picker UI (currently paste-URL only);
-      and the live browser verification pass.
+- [x] **"Share to room" popup + `<video>`/`<iframe>` picker:** extension popup scans the active
+      tab (all frames) for sources, finds open room tabs, and delivers the chosen URL to the room
+      page (→ `setSource`); manual paste box too. (ARCHITECTURE "Source picker".)
+- [ ] **Remaining:** the live browser verification pass (incl. the picker on real embeds).
 
 **Milestone (code):** ✅ host pastes an embed URL, the crew opens the room link, and the page
 relays the server clock into each iframe where the content script enforces it — control-sync,
