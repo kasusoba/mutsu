@@ -235,6 +235,11 @@
           ⚠ sixseven extension not detected — embedded playback can't sync. Install/enable it, then
           reload. (Direct/HLS sources play without the extension.)
         </div>
+      {:else if sourceKind === "embed" && room.sync?.src && room.me?.status === "failed"}
+        <div class="ext-warn">
+          ⚠ This source didn't load — it may block embedding (frame-forbidden) or be unreachable. Try
+          <strong>direct/HLS</strong> mode, a different source, or <strong>reload</strong>.
+        </div>
       {/if}
       {#if sourceKind === "direct" && room.sync?.src}
         <DirectPlayer

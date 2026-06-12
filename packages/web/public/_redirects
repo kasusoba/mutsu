@@ -1,0 +1,4 @@
+# Cloudflare Pages SPA fallback: serve index.html for client-routed paths
+# (e.g. /r/<room>) so the room page loads instead of 404ing. The secret lives
+# in the URL fragment (#k=…), which never reaches the server, so this is safe.
+/*  /index.html  200

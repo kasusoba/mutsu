@@ -17,11 +17,19 @@ playback clock aligned.
 | [docs/PRD.md](docs/PRD.md) | Product requirements — problem, users, scope, features, flows |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical design — components, sync protocol, drift correction, hosting |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Build phases and milestones |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Deploy the server (PartyKit), room page (Cloudflare Pages), and extension |
 | [CLAUDE.md](CLAUDE.md) | Guidance for Claude Code working in this repo |
 
 ## Status
 
-📐 **Planning.** No code yet — docs first.
+🛠️ **Working.** Control-sync is smooth across **solo + multi-viewer** and both source types:
+**embed** (framable pages/providers, hooked by the extension) and **direct** (HLS `.m3u8` / video
+files, played in the room page's own hls.js `<video>` — no extension needed). Plus the source picker
+(extension popup), personal subtitles (upload + online search), presence, activity log, control
+modes, and the buffer gate. Four packages typecheck + build (Chromium + Firefox); `pnpm test:sync` →
+23/23. Deploy guide in [docs/DEPLOY.md](docs/DEPLOY.md).
+
+**Next:** own-tab sync for sites that refuse to embed; YouTube iframe API; embedded-track subtitles.
 
 ## TL;DR of the design
 

@@ -1,0 +1,56 @@
+# Deploying sixseven
+
+Everything here is free-tier. Three pieces: the **sync server** (PartyKit
+Durable Object), the **room page** (static, Cloudflare Pages), and the
+**extension** (per-browser). The room page talks to its own origin in dev; in
+production it talks to the deployed server via `VITE_PARTYKIT_HOST`.
+
+## 1. Sync server (PartyKit → Cloudflare)
+
+```bash
+cd packages/server
+npx partykit deploy                 # first run opens a browser login; prints a URL
+#   → https://sixseven.<your-username>.partykit.dev
+npx partykit env push               # push .env (OpenSubtitles/SubDL keys) for the subtitle proxy
+```
+
+Note: the hosted `partykit.dev` deploy API is occasionally flaky (502) — just
+retry. The URL it prints is your stable `wss://` backend.
+
+## 2. Room page (Cloudflare Pages)
+
+Build with the server URL baked in, then deploy the static output. `_redirects`
+(in `packages/web/public/`) gives the SPA fallback so `/r/<room>` URLs resolve.
+
+```bash
+VITE_PARTYKIT_HOST=sixseven.<your-username>.partykit.dev \
+  pnpm --filter @sixseven/web build          # → packages/web/dist
+
+npx wrangler pages deploy packages/web/dist --project-name sixseven
+#   → https://sixseven.pages.dev
+```
+
+Or connect the GitHub repo in the Pages dashboard with:
+- **Build command:** `VITE_PARTYKIT_HOST=sixseven.<you>.partykit.dev pnpm --filter @sixseven/web build`
+- **Output directory:** `packages/web/dist`
+
+The client auto-uses secure `wss://`/`https://` for any non-local host, so no
+extra config is needed.
+
+## 3. Extension (per browser)
+
+```bash
+pnpm --filter @sixseven/extension build           # → .output/chrome-mv3
+pnpm --filter @sixseven/extension build:firefox   # → .output/firefox-mv2
+```
+
+Load unpacked (`chrome://extensions` → Developer mode → Load unpacked), or zip
+(`pnpm --filter @sixseven/extension zip`) and publish to the store. **Direct /
+HLS sources need no extension; embed sources need it installed on each device.**
+
+## 4. Share
+
+Send friends `https://sixseven.pages.dev/r/<room>#k=<secret>`. The secret lives
+in the URL fragment, so it's never sent to any server. First join establishes
+the room (trust-on-first-use); later joins must match the secret unless the room
+is opened.
