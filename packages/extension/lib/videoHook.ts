@@ -8,7 +8,7 @@
  * It reads/sets a `<video>` clock. It does not rip, relay, or unlock anything.
  */
 
-import { DRIFT_THRESHOLD, type Intent, SEEK_DEADZONE } from "@sixseven/protocol";
+import { DRIFT_THRESHOLD, type Intent } from "@sixseven/protocol";
 import { STATUS_REPORT_MS } from "@sixseven/protocol/bridge";
 
 /**
@@ -30,12 +30,22 @@ const STALL_DEBOUNCE_MS = 700;
 const SELF_SEEK_QUIET_MS = 1000;
 /** Coalesce DOM-mutation re-hook checks so a churny embed can't thrash the hook. */
 const REHOOK_DEBOUNCE_MS = 400;
+// Multi-viewer drift correction (heartbeat ticks): glide via a small playbackRate
+// slew instead of a hard seek (the black-screen jump). Mirrors WebPlayer.
+const NUDGE_ZONE = 0.4;
+const HARD_SEEK = 3.0;
+const MAX_NUDGE = 0.08;
+const NUDGE_GAIN = 0.06;
 
 interface ApplyState {
   intent: Intent;
   time: number;
   rate: number;
   gatePaused: boolean;
+  /** Real command (snap) vs heartbeat/presence tick (gentle correct only). */
+  force: boolean;
+  /** Alone in the room → don't force realtime, just let it play. */
+  solo: boolean;
 }
 
 export class VideoHook {
@@ -103,21 +113,32 @@ export class VideoHook {
       return;
     }
     this.applying = true;
-    if (Number.isFinite(s.rate) && s.rate > 0 && v.playbackRate !== s.rate) {
-      v.playbackRate = s.rate;
+
+    // Same drift model as the direct WebPlayer: a `force` sync (command) snaps;
+    // a heartbeat tick leaves a solo viewer alone and glides a multi viewer back
+    // via a small playbackRate slew, hard-seeking only for a big desync. We flag
+    // any seek BEFORE issuing it so the async `seeked` echo is consumed (not
+    // misread as a user scrub).
+    const baseRate = Number.isFinite(s.rate) && s.rate > 0 ? s.rate : 1;
+    const signed = v.currentTime - s.time; // + = video ahead of the server
+    const drift = Math.abs(signed);
+    let targetRate = baseRate;
+    let snapTo: number | null = null;
+    if (s.force) {
+      if (drift > 0.25) snapTo = s.time;
+    } else if (!s.solo) {
+      if (drift > HARD_SEEK) snapTo = s.time;
+      else if (drift > NUDGE_ZONE) {
+        const frac = Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, -signed * NUDGE_GAIN));
+        targetRate = baseRate * (1 + frac);
+      }
     }
-    const drift = v.currentTime - s.time;
-    if (Math.abs(drift) > SEEK_DEADZONE) {
-      // Flag the seek BEFORE issuing it so the (async) `seeked` echo is consumed,
-      // not misread as a user scrub that would re-base the server clock. Inside
-      // the dead-zone we leave playback alone — a small lead/lag is just buffering
-      // latency, and snapping it is the jitter we're eliminating.
-      dbg(`apply SEEK ${v.currentTime.toFixed(2)}→${s.time.toFixed(2)} (drift ${drift.toFixed(2)})`);
-      this.expectSeek = s.time;
+    if (v.playbackRate !== targetRate) v.playbackRate = targetRate;
+    if (snapTo !== null) {
+      dbg(`apply SEEK ${v.currentTime.toFixed(2)}→${snapTo.toFixed(2)} (drift ${signed.toFixed(2)})`);
+      this.expectSeek = snapTo;
       this.selfSeekAt = performance.now();
-      v.currentTime = s.time;
-    } else {
-      dbg(`apply no-seek (drift ${drift.toFixed(2)}, intent ${s.intent}, gate ${s.gatePaused})`);
+      v.currentTime = snapTo;
     }
     const shouldPlay = s.intent === "playing" && !s.gatePaused;
     if (shouldPlay && v.paused) {

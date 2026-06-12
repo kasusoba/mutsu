@@ -24,6 +24,11 @@
   let pos = $state({ t: 0, dur: 0, at: 0 });
   // Extension presence: the content script tags <html> on our page if installed.
   let extMissing = $state(false);
+  // Debug HUD (?hud): for embed sources, show the iframe video's time vs the
+  // server clock + drift on the page (the embed can't be DevTools'd).
+  const showHud = new URLSearchParams(window.location.search).has("hud");
+  let hud = $state<{ t: number; want: number; drift: number } | null>(null);
+  let syncAt = 0;
   // Transient banner for picker deliveries (SPEC §12) — the extension popup
   // hands us a source URL it found on another tab.
   let pickerNotice = $state<{ text: string; ok: boolean } | null>(null);
@@ -124,7 +129,31 @@
     if (sync === lastAppliedSync && paused === lastGatePaused) return;
     lastAppliedSync = sync;
     lastGatePaused = paused;
-    bridge.apply(sync, room.gate);
+    bridge.apply(sync, room.gate, room.members.length <= 1);
+  });
+
+  // HUD: stamp when each sync arrives, then project both clocks on a small timer.
+  $effect(() => {
+    void room?.sync;
+    syncAt = performance.now();
+  });
+  $effect(() => {
+    if (!showHud) return;
+    const id = setInterval(() => {
+      const r = room;
+      const sync = r?.sync;
+      if (!r || !sync) {
+        hud = null;
+        return;
+      }
+      const rate = sync.rate || 1;
+      const playing = sync.intent === "playing" && !r.gate.paused;
+      const now = performance.now();
+      const want = sync.time + (playing ? ((now - syncAt) / 1000) * rate : 0);
+      const t = pos.t + (playing ? ((now - pos.at) / 1000) * rate : 0);
+      hud = { t, want, drift: t - want };
+    }, 150);
+    return () => clearInterval(id);
   });
 
   // When the room source changes: clear personal subtitles (they belonged to the
@@ -220,6 +249,14 @@
       {:else}
         <Embed src={room.sync?.src ?? null} {bridge} />
       {/if}
+      {#if showHud && sourceKind === "embed" && hud}
+        <div class="hud">
+          t={hud.t.toFixed(2)} · want={hud.want.toFixed(2)} · drift={hud.drift.toFixed(2)} ·
+          {room.sync?.intent}{room.gate.paused ? " · GATED" : ""}{room.members.length <= 1
+            ? " · solo"
+            : ` · ${room.members.length}`}
+        </div>
+      {/if}
       <Controls {room} {pos} />
       {#if subs}<SubtitlePanel {subs} />{/if}
     </main>
@@ -246,6 +283,18 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+  }
+  .hud {
+    position: fixed;
+    top: 8px;
+    left: 8px;
+    z-index: 50;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #6ea8fe;
+    font: 12px/1.2 ui-monospace, monospace;
+    pointer-events: none;
   }
   .ext-warn {
     padding: 8px 12px;

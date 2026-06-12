@@ -59,7 +59,7 @@ export class PageBridge {
   }
 
   /** Forward the latest server truth for the content script to enforce (SPEC §4). */
-  apply(sync: SyncMessage, gate: GateMessage): void {
+  apply(sync: SyncMessage, gate: GateMessage, solo: boolean): void {
     const msg: ApplyMessage = {
       kind: "apply",
       src: sync.src,
@@ -67,6 +67,8 @@ export class PageBridge {
       time: sync.time,
       rate: sync.rate,
       gatePaused: gate.paused,
+      force: sync.force,
+      solo,
     };
     this.post(msg);
   }

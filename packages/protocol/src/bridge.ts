@@ -48,6 +48,10 @@ export interface ApplyMessage {
   rate: number;
   /** Soft buffer gate (SPEC §9): when true, hold playback even if intent plays. */
   gatePaused: boolean;
+  /** Real command (snap) vs heartbeat/presence tick (gentle correct only). */
+  force: boolean;
+  /** Alone in the room → don't force realtime, just let it play. */
+  solo: boolean;
 }
 
 /** Escape hatch (SPEC §12): reveal/hide the native site UI under the overlay. */

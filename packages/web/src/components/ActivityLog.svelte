@@ -12,6 +12,16 @@
     return room.members.find((m) => m.id === id)?.name ?? "someone";
   }
 
+  /** Short, human label for a source URL (its host) for the activity log. */
+  function sourceLabel(url: string | undefined): string {
+    if (!url) return "a new source";
+    try {
+      return new URL(url).host || url;
+    } catch {
+      return url.slice(0, 40);
+    }
+  }
+
   function describe(e: LogEvent): string {
     switch (e.kind) {
       case "joined":
@@ -19,7 +29,7 @@
       case "left":
         return `${e.detail ?? nameOf(e.actor)} left`;
       case "setSource":
-        return `${nameOf(e.actor)} changed the source`;
+        return `${nameOf(e.actor)} set the source → ${sourceLabel(e.detail)}`;
       case "played":
         return `${nameOf(e.actor)} pressed play`;
       case "paused":

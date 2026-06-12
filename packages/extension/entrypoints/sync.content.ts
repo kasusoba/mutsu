@@ -152,6 +152,8 @@ export default defineContentScript({
             time: msg.time,
             rate: msg.rate,
             gatePaused: msg.gatePaused,
+            force: msg.force,
+            solo: msg.solo,
           };
           if (engaged) hook.apply(lastApply);
           break;
