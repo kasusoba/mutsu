@@ -36,6 +36,8 @@ export interface PickSourceMessage {
   tag: typeof PICKER_TAG;
   kind: "pick-source";
   url: string;
+  /** Suggested render kind ("embed"|"direct"); the page may still re-detect. */
+  srcKind?: "embed" | "direct";
 }
 
 /** Validate + narrow an incoming postMessage payload to a PickSourceMessage. */

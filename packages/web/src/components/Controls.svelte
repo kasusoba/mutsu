@@ -4,31 +4,13 @@
   interface Props {
     room: RoomClient;
     pos: { t: number; dur: number; at: number };
-    /** Which side panel is open ("source" | "subs" | null), to highlight the button. */
-    activePanel: string | null;
-    onPanel: (p: "source" | "subs") => void;
-    theater: boolean;
-    onTheater: () => void;
-    sidebarOpen: boolean;
-    onSidebar: () => void;
+    muted: boolean;
+    volume: number;
+    onMute: () => void;
+    onVolume: (v: number) => void;
     onFullscreen: () => void;
-    /** Embed only: hand the surface to the site's own player (hide our overlay). */
-    canSitePlayer: boolean;
-    onSitePlayer: () => void;
   }
-  const {
-    room,
-    pos,
-    activePanel,
-    onPanel,
-    theater,
-    onTheater,
-    sidebarOpen,
-    onSidebar,
-    onFullscreen,
-    canSitePlayer,
-    onSitePlayer,
-  }: Props = $props();
+  const { room, pos, muted, volume, onMute, onVolume, onFullscreen }: Props = $props();
 
   let scrubbing = $state(false);
   let scrubValue = $state(0);
@@ -42,7 +24,6 @@
   });
 
   const playing = $derived(room.sync?.intent === "playing");
-  const mode = $derived(room.sync?.mode ?? "open");
   const rate = $derived(room.sync?.rate ?? 1);
   const hasSrc = $derived(Boolean(room.sync?.src));
 
@@ -91,16 +72,13 @@
 </script>
 
 <div class="bar">
-  <!-- seek -->
   <div
     class="scrub-wrap"
     role="presentation"
     onmousemove={onScrubHover}
     onmouseleave={() => (hoverX = -1)}
   >
-    <div class="track">
-      <div class="fill" style="width: {frac * 100}%"></div>
-    </div>
+    <div class="track"><div class="fill" style="width: {frac * 100}%"></div></div>
     <input
       class="scrub"
       type="range"
@@ -118,13 +96,17 @@
     {/if}
   </div>
 
-  <!-- controls -->
   <div class="ctl">
     <button class="ico play" onclick={togglePlay} disabled={!room.canControl || !hasSrc} title={playing ? "Pause" : "Play"}>
       {playing ? "⏸" : "▶"}
     </button>
     <button class="ico" onclick={() => nudge(-10)} disabled={!room.canControl || !hasSrc} title="Back 10s">⏪</button>
     <button class="ico" onclick={() => nudge(10)} disabled={!room.canControl || !hasSrc} title="Forward 10s">⏩</button>
+
+    <div class="vol">
+      <button class="ico" onclick={onMute} title={muted ? "Unmute" : "Mute"}>{muted || volume === 0 ? "🔇" : "🔊"}</button>
+      <input class="vol-slider" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} oninput={(e) => onVolume(+e.currentTarget.value)} aria-label="Volume" />
+    </div>
 
     <span class="time">{fmt(clampedTime)} <span class="sep">/</span> {pos.dur ? fmt(pos.dur) : "--:--"}</span>
 
@@ -139,17 +121,6 @@
         <option value={r}>{r}×</option>
       {/each}
     </select>
-
-    <button class="ico" class:on={activePanel === "subs"} onclick={() => onPanel("subs")} title="Subtitles">CC</button>
-    <button class="ico" class:on={activePanel === "source"} onclick={() => onPanel("source")} title="Source">⛓</button>
-    <button class="ico mode" onclick={() => room.setMode(mode === "host" ? "open" : "host")} disabled={!room.canControl} title="open = anyone controls; host = only the host">
-      {mode === "host" ? "🔒" : "🔓"}
-    </button>
-    {#if canSitePlayer}
-      <button class="ico" onclick={onSitePlayer} title="Use the site's own player (hide sixseven overlay)">🎬</button>
-    {/if}
-    <button class="ico" class:on={!sidebarOpen} onclick={onSidebar} title="Toggle sidebar">▥</button>
-    <button class="ico" class:on={theater} onclick={onTheater} title="Theater mode">⬓</button>
     <button class="ico" onclick={onFullscreen} title="Fullscreen">⛶</button>
   </div>
 </div>
@@ -160,7 +131,7 @@
     flex-direction: column;
     gap: 6px;
     padding: 6px 12px 10px;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.45) 70%, transparent);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.85), rgba(0, 0, 0, 0.4) 70%, transparent);
   }
   .scrub-wrap {
     position: relative;
@@ -191,7 +162,7 @@
     background: none;
     border: none;
     accent-color: var(--accent);
-    opacity: 0; /* invisible native slider for interaction; we draw the track */
+    opacity: 0;
     cursor: pointer;
   }
   .scrub:disabled {
@@ -228,14 +199,19 @@
   .ico:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.15);
   }
-  .ico.on {
-    background: color-mix(in srgb, var(--accent) 45%, transparent);
-  }
   .ico.play {
     font-size: 18px;
   }
-  .ico.mode {
-    font-size: 13px;
+  .vol {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .vol-slider {
+    width: 72px;
+    accent-color: #fff;
+    background: none;
+    border: none;
   }
   .time {
     font-variant-numeric: tabular-nums;

@@ -12,11 +12,14 @@
     subs: SubtitleController | null;
     /** Alone in the room → don't force realtime, just play (no drift seeks). */
     solo: boolean;
+    /** Personal (not synced) audio. */
+    muted: boolean;
+    volume: number;
     onStatus: (state: MemberStatus, currentTime: number, duration: number) => void;
     /** A user action on OUR controls (click-to-toggle) → relayed to the room. */
     onUserControl: (intent: Intent, time: number) => void;
   }
-  const { src, sync, gate, subs, solo, onStatus, onUserControl }: Props = $props();
+  const { src, sync, gate, subs, solo, muted, volume, onStatus, onUserControl }: Props = $props();
 
   let video = $state<HTMLVideoElement | null>(null);
   let player = $state<WebPlayer | null>(null);
@@ -158,6 +161,14 @@
   // Keep the controller's solo flag current as members come and go.
   $effect(() => {
     if (player) player.solo = solo;
+  });
+
+  // Personal audio (not synced).
+  $effect(() => {
+    if (video) {
+      video.muted = muted;
+      video.volume = volume;
+    }
   });
 
   // Enforce server truth — only on a fresh sync or a gate-pause flip.

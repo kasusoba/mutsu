@@ -68,7 +68,12 @@ export default defineContentScript({
         }
         if (msg.type === PICKER_DELIVER && typeof msg.url === "string") {
           // Hand it to the room page on its own origin; the page calls setSource.
-          const pick: PickSourceMessage = { tag: PICKER_TAG, kind: "pick-source", url: msg.url };
+          const pick: PickSourceMessage = {
+            tag: PICKER_TAG,
+            kind: "pick-source",
+            url: msg.url,
+            srcKind: msg.srcKind,
+          };
           window.postMessage(pick, window.location.origin);
           const reply: DeliverSourceReply = { ok: true };
           return Promise.resolve(reply);

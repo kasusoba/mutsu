@@ -59,17 +59,20 @@ See ARCHITECTURE.md for the protocol, the single-clock rule, and the drift algor
 
 ## Scope guardrails (do not cross)
 
-This repo builds **content-neutral control-sync infrastructure**. Do **not** add:
+This repo builds **content-neutral control-sync infrastructure**. The hard lines that stay are:
 
-- DRM circumvention of any kind.
-- Stream **extraction/rehosting** — pulling a stream URL out of a page to rebroadcast one
-  source to people who can't access it themselves.
-- **Header/CORS forging** — rewriting `Referer`/`Origin` or injecting CORS headers to defeat
-  a site's hotlink/access controls.
+- **No DRM circumvention** of any kind.
+- **No rehosting / relay** — never route or transcode video bytes through a server. Each viewer
+  loads the source **first-party** from their own browser; we only move the URL + the clock.
+- **No header/CORS/referer forging** — never rewrite `Referer`/`Origin` or inject CORS headers to
+  defeat a site's hotlink/access controls. A source that 403s without its origin's referer just
+  won't load (we surface that), and that's fine.
 
-The design assumes **every viewer can already access the source they sync**. The extension
-reads a `<video>` element's clock; it does not rip, relay, or unlock anything. Keep new code
-on that side of the line.
+The picker MAY surface URLs already present in a page's DOM (an `<iframe>` src, a `<video>` src,
+or a `<video><source>` stream URL) and hand the chosen one to the room, where each viewer loads it
+first-party — same as the user copy-pasting it themselves. That's the project owner's call; it is
+**not** rehosting or forging, which remain forbidden. The design still assumes **every viewer can
+already access the source they sync**.
 
 ## Conventions
 

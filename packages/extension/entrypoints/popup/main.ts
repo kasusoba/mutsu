@@ -49,7 +49,7 @@ function selectedRoomTab(): number | null {
   return Number.isFinite(id) ? id : rooms[0].tabId;
 }
 
-async function deliver(url: string): Promise<void> {
+async function deliver(url: string, srcKind?: "embed" | "direct"): Promise<void> {
   const tabId = selectedRoomTab();
   if (tabId === null) {
     notice("Open your sixseven room page in another tab, then reopen this.", "err");
@@ -59,6 +59,7 @@ async function deliver(url: string): Promise<void> {
     const reply = (await browser.tabs.sendMessage(tabId, {
       type: PICKER_DELIVER,
       url,
+      srcKind,
     })) as DeliverSourceReply | undefined;
     if (reply?.ok) {
       const room = rooms.find((r) => r.tabId === tabId)?.room ?? "room";
@@ -121,7 +122,7 @@ function renderCandidates(candidates: MediaCandidate[]): void {
       tag.textContent = "playing";
       btn.append(tag);
     }
-    btn.addEventListener("click", () => deliver(c.url));
+    btn.addEventListener("click", () => deliver(c.url, c.kind));
     listEl.append(btn);
   }
 }

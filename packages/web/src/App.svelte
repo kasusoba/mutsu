@@ -203,7 +203,7 @@
         flashPicker(error ?? "The picker sent an invalid source.", false);
         return;
       }
-      r.setSource(url, classifySource(url));
+      r.setSource(url, e.data.srcKind ?? classifySource(url));
       flashPicker("Source set from the extension picker.", true);
     };
     window.addEventListener("message", onPick);
@@ -226,14 +226,13 @@
   const sourceKind = $derived(room?.sync?.srcKind ?? "embed");
 
   // ── player UI state (M1) ──────────────────────────────────────────────────
-  let theater = $state(false);
   let sidebarOpen = $state(true);
   let activePanel = $state<"source" | "subs" | null>(null);
-  // Embed only: hand the surface to the site's own player (hide our overlay).
-  let sitePlayer = $state(false);
   let playerArea = $state<HTMLElement | null>(null);
-  const canSitePlayer = $derived(sourceKind === "embed");
-  const showSidebar = $derived(!theater && sidebarOpen);
+  // Personal audio (direct player only; not synced).
+  let muted = $state(false);
+  let volume = $state(1);
+  const mode = $derived(room?.sync?.mode ?? "open");
 
   function togglePanel(p: "source" | "subs") {
     activePanel = activePanel === p ? null : p;
@@ -242,20 +241,31 @@
     if (document.fullscreenElement) document.exitFullscreen();
     else playerArea?.requestFullscreen?.();
   }
-  // Hide/show the in-iframe overlay for "use the site's player"; reset on direct.
-  $effect(() => {
-    bridge?.setHidden(sitePlayer && canSitePlayer);
-  });
-  $effect(() => {
-    if (!canSitePlayer && sitePlayer) sitePlayer = false;
-  });
+  function setVolume(v: number) {
+    volume = v;
+    muted = v === 0;
+  }
 </script>
 
 {#if !joined}
   <Join room={loc.room} initialNick={nickname} onJoin={join} />
 {:else if room && bridge}
-  <div class="layout" class:full={!showSidebar}>
+  <div class="layout" class:full={!sidebarOpen}>
     <main>
+      <header class="topbar">
+        <span class="brand">sixseven</span>
+        <span class="dot {room.connected ? 'on' : 'off'}" title={room.connected ? 'connected' : 'reconnecting…'}></span>
+        <span class="spacer"></span>
+        <button class="tb" class:on={activePanel === 'subs'} onclick={() => togglePanel('subs')} disabled={!room.sync?.src}>Subtitles</button>
+        <button class="tb" class:on={activePanel === 'source'} onclick={() => togglePanel('source')} disabled={!room.canControl}>Source</button>
+        <button class="tb" onclick={() => room?.setMode(mode === 'host' ? 'open' : 'host')} disabled={!room.canControl} title="Who can control playback">
+          {mode === 'host' ? '👑 Host-only' : '👥 Anyone controls'}
+        </button>
+        <button class="tb" onclick={() => (sidebarOpen = !sidebarOpen)} title="Members & activity">
+          {sidebarOpen ? '⟩ Hide panel' : '⟨ Show panel'}
+        </button>
+      </header>
+
       <div class="player-area" bind:this={playerArea}>
         {#if sourceKind === "direct" && room.sync?.src}
           <DirectPlayer
@@ -264,6 +274,8 @@
             gate={room.gate}
             {subs}
             solo={room.members.length <= 1}
+            {muted}
+            {volume}
             onStatus={onStatusReport}
             onUserControl={onLocalControlReport}
           />
@@ -271,7 +283,6 @@
           <Embed src={room.sync?.src ?? null} {bridge} />
         {/if}
 
-        <!-- overlays -->
         {#if showHud && sourceKind === "embed" && hud}
           <div class="hud">
             t={hud.t.toFixed(2)} · want={hud.want.toFixed(2)} · drift={hud.drift.toFixed(2)} ·
@@ -295,51 +306,41 @@
         {:else if sourceKind === "embed" && room.sync?.src && room.me?.status === "failed"}
           <div class="banner">
             ⚠ This source didn't load — it may block embedding or be unreachable. Try
-            <strong>direct/HLS</strong> mode (Source ⛓), a different source, or Reload.
+            <strong>Direct / HLS</strong> mode in Source, a different source, or Reload.
           </div>
         {/if}
 
-        {#if sitePlayer}
-          <button class="restore" onclick={() => (sitePlayer = false)}>↩ sixseven controls</button>
-        {:else}
-          {#if activePanel === "source"}
-            <div class="popover">
-              <div class="pop-head"><span>Source</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close">✕</button></div>
-              <SourcePanel {room} />
-            </div>
-          {:else if activePanel === "subs" && subs}
-            <div class="popover">
-              <div class="pop-head"><span>Subtitles</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close">✕</button></div>
-              <SubtitlePanel {subs} />
-            </div>
-          {/if}
+        {#if activePanel === "source"}
+          <div class="popover">
+            <div class="pop-head"><span>Source</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close">✕</button></div>
+            <SourcePanel {room} />
+          </div>
+        {:else if activePanel === "subs" && subs}
+          <div class="popover">
+            <div class="pop-head"><span>Subtitles</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close">✕</button></div>
+            <SubtitlePanel {subs} />
+          </div>
+        {/if}
+
+        <!-- Our video bar is for the direct player only; embeds use their own. -->
+        {#if sourceKind === "direct" && room.sync?.src}
           <div class="bar-wrap">
             <Controls
               {room}
               {pos}
-              {activePanel}
-              onPanel={togglePanel}
-              {theater}
-              onTheater={() => (theater = !theater)}
-              {sidebarOpen}
-              onSidebar={() => (sidebarOpen = !sidebarOpen)}
+              {muted}
+              {volume}
+              onMute={() => (muted = !muted)}
+              onVolume={setVolume}
               onFullscreen={toggleFullscreen}
-              {canSitePlayer}
-              onSitePlayer={() => (sitePlayer = true)}
             />
           </div>
         {/if}
       </div>
     </main>
 
-    {#if showSidebar}
+    {#if sidebarOpen}
       <aside>
-        <div class="brand">
-          sixseven
-          <span class="conn {room.connected ? 'on' : 'off'}">
-            {room.connected ? "connected" : "reconnecting…"}
-          </span>
-        </div>
         <Members {room} />
         <ActivityLog {room} />
       </aside>
@@ -358,9 +359,44 @@
   }
   main {
     display: flex;
+    flex-direction: column;
     min-width: 0;
     min-height: 0;
     background: #000;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar .brand {
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+  }
+  .dot.on {
+    background: var(--good);
+  }
+  .dot.off {
+    background: var(--warn);
+  }
+  .spacer {
+    flex: 1;
+  }
+  .tb {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  .tb.on {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 22%, var(--panel-2));
   }
   .player-area {
     position: relative;
@@ -380,14 +416,14 @@
   .popover {
     position: absolute;
     right: 12px;
-    bottom: 78px;
+    top: 12px;
     z-index: 25;
     background: var(--panel);
     border: 1px solid var(--line);
     border-radius: 14px;
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
     overflow: hidden;
-    max-height: calc(100% - 110px);
+    max-height: calc(100% - 90px);
     display: flex;
     flex-direction: column;
   }
@@ -404,16 +440,6 @@
     background: none;
     border: none;
     color: var(--muted);
-  }
-  .restore {
-    position: absolute;
-    bottom: 14px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 20;
-    background: rgba(0, 0, 0, 0.7);
-    border-color: rgba(255, 255, 255, 0.25);
-    color: #fff;
   }
   .hud {
     position: absolute;
@@ -467,28 +493,5 @@
     border-left: 1px solid var(--line);
     background: var(--panel);
     min-height: 0;
-  }
-  .brand {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid var(--line);
-  }
-  .conn {
-    font-size: 11px;
-    font-weight: 400;
-    padding: 2px 8px;
-    border-radius: 999px;
-  }
-  .conn.on {
-    color: var(--good);
-    background: color-mix(in srgb, var(--good) 18%, transparent);
-  }
-  .conn.off {
-    color: var(--warn);
-    background: color-mix(in srgb, var(--warn) 18%, transparent);
   }
 </style>

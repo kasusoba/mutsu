@@ -27,6 +27,7 @@ export interface AreYouRoomReply {
 export interface DeliverSourceMessage {
   type: typeof PICKER_DELIVER;
   url: string;
+  srcKind?: "embed" | "direct";
 }
 export interface DeliverSourceReply {
   ok: boolean;
@@ -44,6 +45,8 @@ export interface MediaCandidate {
   type: "video" | "iframe";
   /** The URL we'd hand to `setSource` (resolved, absolute, http(s)). */
   url: string;
+  /** Suggested render kind: framed `embed` page vs a `direct` media/stream URL. */
+  kind: "embed" | "direct";
   /** The document URL of the frame it was found in (for context). */
   pageUrl: string;
   pageTitle: string;
@@ -74,6 +77,7 @@ export function collectFrameCandidates(): MediaCandidate[] {
     out.push({
       type: "iframe",
       url: src,
+      kind: "embed",
       pageUrl: here,
       pageTitle: document.title,
       direct: true,
@@ -84,19 +88,25 @@ export function collectFrameCandidates(): MediaCandidate[] {
   }
 
   for (const v of Array.from(document.querySelectorAll("video"))) {
-    const media = v.currentSrc || v.src || "";
-    const direct = isHttp(media);
     const r = v.getBoundingClientRect();
-    out.push({
-      type: "video",
-      url: direct ? media : here,
-      pageUrl: here,
-      pageTitle: document.title,
-      direct,
-      playing: !v.paused && !v.ended && v.readyState > 2,
-      width: Math.round(r.width || v.videoWidth),
-      height: Math.round(r.height || v.videoHeight),
-    });
+    const playing = !v.paused && !v.ended && v.readyState > 2;
+    const w = Math.round(r.width || v.videoWidth);
+    const h = Math.round(r.height || v.videoHeight);
+    const media = v.currentSrc || v.src || "";
+    if (isHttp(media)) {
+      out.push({ type: "video", url: media, kind: "direct", pageUrl: here, pageTitle: document.title, direct: true, playing, width: w, height: h });
+    } else {
+      // blob:/MSE — no addressable URL, so offer the hosting page (embed it).
+      out.push({ type: "video", url: here, kind: "embed", pageUrl: here, pageTitle: document.title, direct: false, playing, width: w, height: h });
+    }
+    // Also surface the real stream URL from <source> children (e.g. an HLS
+    // playlist behind a blob/MSE video) — a direct source the room can load.
+    for (const s of Array.from(v.querySelectorAll("source"))) {
+      const ss = (s as HTMLSourceElement).src;
+      if (isHttp(ss)) {
+        out.push({ type: "video", url: ss, kind: "direct", pageUrl: here, pageTitle: document.title, direct: true, playing, width: w, height: h });
+      }
+    }
   }
 
   return out;
