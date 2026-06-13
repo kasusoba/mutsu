@@ -51,9 +51,11 @@ interface ActiveTab {
   title: string;
 }
 
-export async function initOwnTab(rootIn?: HTMLElement): Promise<void> {
+/** Renders the own-tab section; resolves true if this tab is in an active party
+ *  (so the popup can open on the "Watch here" tab). */
+export async function initOwnTab(rootIn?: HTMLElement): Promise<boolean> {
   const root = rootIn ?? document.getElementById("ownTab");
-  if (!root) return;
+  if (!root) return false;
 
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   const active: ActiveTab | null =
@@ -64,8 +66,12 @@ export async function initOwnTab(rootIn?: HTMLElement): Promise<void> {
   const nickname = await loadNickname();
   const existing = active ? await partyForUrl(active.url) : null;
 
-  if (existing && active) renderActive(root, active, existing);
-  else renderEntry(root, active, nickname);
+  if (existing && active) {
+    renderActive(root, active, existing);
+    return true;
+  }
+  renderEntry(root, active, nickname);
+  return false;
 }
 
 // ── active party on this tab ──────────────────────────────────────────────────

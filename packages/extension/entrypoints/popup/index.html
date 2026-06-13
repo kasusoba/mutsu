@@ -53,6 +53,40 @@
         align-items: center;
         gap: 10px;
       }
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .tab {
+        flex: 1;
+        font: inherit;
+        font-size: 13px;
+        padding: 9px 8px;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .tab:hover { color: var(--text); }
+      .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+      .panel {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+      .panel[hidden] { display: none; }
+      #herePanel { overflow: auto; }
+      .room-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .room-bar-label { font-size: 12px; color: var(--muted); margin-right: auto; }
       .rescan {
         font: inherit;
         font-size: 12px;
@@ -369,25 +403,32 @@
   <body>
     <header>
       <span class="brand">sixseven</span>
-      <span class="head-right">
+    </header>
+    <div class="tabs" role="tablist">
+      <button class="tab" id="tabHere" data-tab="here">Watch on this page</button>
+      <button class="tab" id="tabRoom" data-tab="room">Send to a room</button>
+    </div>
+
+    <div class="panel" id="herePanel">
+      <div id="ownTab"></div>
+    </div>
+
+    <div class="panel" id="roomPanel" hidden>
+      <div class="room-bar">
+        <span class="room-bar-label">Videos on this page</span>
         <span class="muted" id="count"></span>
         <button class="rescan" id="rescan" title="Scan this tab again">Rescan</button>
-      </span>
-    </header>
-    <div id="ownTab"></div>
-    <div class="section-sep">
-      Or send this video to a room page
-      <span class="section-sub">a sixseven.pages.dev room tab you have open</span>
-    </div>
-    <div class="target" id="targetRow" hidden>
-      <label for="room">send to</label>
-      <select id="room"></select>
-    </div>
-    <div id="list"></div>
-    <div id="notice"></div>
-    <div class="manual">
-      <input id="manualUrl" type="text" placeholder="…or paste an embed/source URL" />
-      <button class="send" id="manualSend">send</button>
+      </div>
+      <div class="target" id="targetRow" hidden>
+        <label for="room">send to</label>
+        <select id="room"></select>
+      </div>
+      <div id="list"></div>
+      <div id="notice"></div>
+      <div class="manual">
+        <input id="manualUrl" type="text" placeholder="…or paste an embed/source URL" />
+        <button class="send" id="manualSend">send</button>
+      </div>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>
