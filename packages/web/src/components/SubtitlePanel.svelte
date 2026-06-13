@@ -22,6 +22,11 @@
   }
 
   const offsetSec = $derived((subs.style.offsetMs / 1000).toFixed(2));
+
+  // WebKit has no slider-fill pseudo — give it the filled width as a %. (Firefox
+  // fills ::-moz-range-progress natively and just ignores this.)
+  const fill = (value: number, min: number, max: number) =>
+    `${((value - min) / (max - min)) * 100}%`;
 </script>
 
 <section>
@@ -117,6 +122,7 @@
           max="10"
           step="0.05"
           value={subs.style.offsetMs / 1000}
+          style="--fill: {fill(subs.style.offsetMs / 1000, -10, 10)}"
           oninput={(e) => subs.patchStyle({ offsetMs: Math.round(+e.currentTarget.value * 1000) })}
         />
         <button class="step" onclick={() => subs.nudgeOffset(50)}>+</button>
@@ -142,6 +148,7 @@
           max="40"
           step="1"
           value={subs.style.marginPct}
+          style="--fill: {fill(subs.style.marginPct, 0, 40)}"
           oninput={(e) => subs.patchStyle({ marginPct: +e.currentTarget.value })}
         />
         <span class="val">{subs.style.marginPct}%</span>
@@ -156,6 +163,7 @@
           max="220"
           step="5"
           value={subs.style.sizePct}
+          style="--fill: {fill(subs.style.sizePct, 60, 220)}"
           oninput={(e) => subs.patchStyle({ sizePct: +e.currentTarget.value })}
         />
         <span class="val">{subs.style.sizePct}%</span>
@@ -168,6 +176,7 @@
           max="1"
           step="0.1"
           value={subs.style.background}
+          style="--fill: {fill(subs.style.background, 0, 1)}"
           oninput={(e) => subs.patchStyle({ background: +e.currentTarget.value })}
         />
       </div>
@@ -306,9 +315,6 @@
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  .ctl input[type="range"] {
-    accent-color: var(--accent);
   }
   .step {
     padding: 4px 10px;

@@ -54,3 +54,52 @@ input {
   border-radius: 8px;
   padding: 8px 10px;
 }
+
+/* Sliders: match the video player's volume bar — a thin track, a round accent
+ * thumb, and a fill that reaches the edges. WebKit has no fill pseudo, so the
+ * filled part is a gradient sized by `--fill` (set inline as a %); Firefox fills
+ * `::-moz-range-progress` natively. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) left center / var(--fill, 0%) 100% no-repeat,
+    rgba(255, 255, 255, 0.22);
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -4px;
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+}

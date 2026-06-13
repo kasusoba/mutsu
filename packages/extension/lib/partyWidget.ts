@@ -143,6 +143,15 @@ export class PartyWidget {
     return this.root?.querySelector(sel) ?? null;
   }
 
+  /** Paint a range slider's filled portion (WebKit has no fill pseudo) — set the
+   *  filled width as a % via `--fill`, matching the video player's volume bar. */
+  private paintRange(el: HTMLInputElement): void {
+    const min = Number(el.min) || 0;
+    const max = Number(el.max) || 100;
+    const pct = max > min ? ((Number(el.value) - min) / (max - min)) * 100 : 0;
+    el.style.setProperty("--fill", `${pct}%`);
+  }
+
   private render(): void {
     if (!this.root) return;
     const s = this.state;
@@ -180,7 +189,10 @@ export class PartyWidget {
       const atBottom = chat.scrollTop + chat.clientHeight >= chat.scrollHeight - 4;
       chat.innerHTML = s.chat
         .slice(-50)
-        .map((m) => `<li class="${m.self ? "me" : ""}"><span class="cn">${esc(m.name)}</span>${esc(m.text)}</li>`)
+        .map(
+          (m) =>
+            `<li class="${m.self ? "me" : ""}"><span class="cn">${esc(m.name)}</span>${esc(m.text)}</li>`,
+        )
         .join("");
       if (atBottom) chat.scrollTop = chat.scrollHeight;
     }
@@ -223,7 +235,9 @@ export class PartyWidget {
     // one doesn't fight the re-render).
     const setRange = (sel: string, v: number) => {
       const el = this.$(sel) as HTMLInputElement | null;
-      if (el && this.root?.activeElement !== el) el.value = String(v);
+      if (!el) return;
+      if (this.root?.activeElement !== el) el.value = String(v);
+      this.paintRange(el); // keep the WebKit fill in sync with the value
     };
     setRange(".sub-offset", s.subStyle.offsetMs / 1000);
     setRange(".sub-size", s.subStyle.sizePct);
@@ -274,7 +288,10 @@ export class PartyWidget {
       const star = document.createElement("button");
       star.className = "gstar";
       star.textContent = "★";
-      star.classList.toggle("on", this.gifFavs.some((f) => f.url === g.url));
+      star.classList.toggle(
+        "on",
+        this.gifFavs.some((f) => f.url === g.url),
+      );
       star.addEventListener("click", () => this.toggleGifFav(g));
       tile.append(send, star);
       grid.append(tile);
@@ -320,7 +337,9 @@ export class PartyWidget {
         const c = this.$(".copy");
         if (c) {
           c.textContent = "Copied ✓";
-          setTimeout(() => c && (c.textContent = "Copy code"), 1400);
+          setTimeout(() => {
+            if (c) c.textContent = "Copy code";
+          }, 1400);
         }
       } catch {
         /* clipboard blocked — code is visible anyway */
@@ -400,7 +419,8 @@ export class PartyWidget {
         reactions: (this.$(".fun-react") as HTMLInputElement)?.checked ?? true,
         gifs: (this.$(".fun-gif") as HTMLInputElement)?.checked ?? true,
         bubbles: (this.$(".fun-bub") as HTMLInputElement)?.checked ?? true,
-        speed: ((this.$(".fun-spd") as HTMLSelectElement)?.value ?? "normal") as FunSettings["speed"],
+        speed: ((this.$(".fun-spd") as HTMLSelectElement)?.value ??
+          "normal") as FunSettings["speed"],
       };
       this.state.fun = s;
       this.opts.onFunSettings(s);
@@ -434,9 +454,10 @@ export class PartyWidget {
       this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs + 100 }),
     );
     const offset = this.$(".sub-offset") as HTMLInputElement | null;
-    offset?.addEventListener("input", () =>
-      this.opts.subs.patchStyle({ offsetMs: Math.round(+offset.value * 1000) }),
-    );
+    offset?.addEventListener("input", () => {
+      this.paintRange(offset);
+      this.opts.subs.patchStyle({ offsetMs: Math.round(+offset.value * 1000) });
+    });
     const offNum = this.$(".sub-off-num") as HTMLInputElement | null;
     offNum?.addEventListener("input", () =>
       this.opts.subs.patchStyle({ offsetMs: Math.round((+offNum.value || 0) * 1000) }),
@@ -449,13 +470,22 @@ export class PartyWidget {
     this.$(".sub-clear")?.addEventListener("click", () => this.opts.subs.clear());
 
     const size = this.$(".sub-size") as HTMLInputElement | null;
-    size?.addEventListener("input", () => this.opts.subs.patchStyle({ sizePct: +size.value }));
+    size?.addEventListener("input", () => {
+      this.paintRange(size);
+      this.opts.subs.patchStyle({ sizePct: +size.value });
+    });
     const dist = this.$(".sub-dist") as HTMLInputElement | null;
-    dist?.addEventListener("input", () => this.opts.subs.patchStyle({ marginPct: +dist.value }));
+    dist?.addEventListener("input", () => {
+      this.paintRange(dist);
+      this.opts.subs.patchStyle({ marginPct: +dist.value });
+    });
     const color = this.$(".sub-color") as HTMLInputElement | null;
     color?.addEventListener("input", () => this.opts.subs.patchStyle({ color: color.value }));
     const box = this.$(".sub-box") as HTMLInputElement | null;
-    box?.addEventListener("input", () => this.opts.subs.patchStyle({ background: +box.value }));
+    box?.addEventListener("input", () => {
+      this.paintRange(box);
+      this.opts.subs.patchStyle({ background: +box.value });
+    });
 
     // Online subtitle search (member-gated proxy via the controller).
     const q = this.$(".sub-q") as HTMLInputElement | null;
@@ -691,7 +721,12 @@ export class PartyWidget {
   .subs button { padding:4px 8px; }
   .sub-style2 { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
   .sub-mini { font-size:11px; color:#9aa0b4; }
-  .sub-range { flex:1; min-width:54px; accent-color:#6c7cff; }
+  .sub-range { flex:1; min-width:54px; -webkit-appearance:none; appearance:none; height:16px; padding:0; border:none; background:transparent; cursor:pointer; }
+  .sub-range::-webkit-slider-runnable-track { height:4px; border-radius:999px; background:linear-gradient(#6c7cff,#6c7cff) left center / var(--fill,0%) 100% no-repeat, rgba(255,255,255,0.22); }
+  .sub-range::-moz-range-track { height:4px; border-radius:999px; background:rgba(255,255,255,0.22); }
+  .sub-range::-moz-range-progress { height:4px; border-radius:999px; background:#6c7cff; }
+  .sub-range::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; margin-top:-4px; width:12px; height:12px; border:none; border-radius:50%; background:#6c7cff; }
+  .sub-range::-moz-range-thumb { width:12px; height:12px; border:none; border-radius:50%; background:#6c7cff; }
   .sub-color { width:28px; height:24px; padding:0; border:1px solid #2a2e3d; background:none; border-radius:6px; cursor:pointer; }
   .sub-tracks { font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; width:100%; }
   .sub-tracks[hidden] { display:none; }
@@ -789,5 +824,8 @@ export class PartyWidget {
 }
 
 function esc(s: string): string {
-  return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
+  return s.replace(
+    /[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c,
+  );
 }
