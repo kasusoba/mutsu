@@ -41,7 +41,11 @@ interface WidgetOpts {
     loadResult: (r: SubResult) => Promise<void>;
     selectTrack: (id: string | null) => void;
   };
+  /** Send an emoji reaction to the room (§14). */
+  onReact: (emoji: string) => void;
 }
+
+const REACT_EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "😢", "🎉"];
 
 const POS_KEY = "sixseven:widgetPos";
 const HIDDEN_KEY = "sixseven:widgetHidden";
@@ -236,6 +240,10 @@ export class PartyWidget {
     });
     this.$(".leave")?.addEventListener("click", () => this.opts.onLeave());
 
+    for (const b of this.root?.querySelectorAll<HTMLButtonElement>(".react") ?? []) {
+      b.addEventListener("click", () => this.opts.onReact(b.textContent ?? ""));
+    }
+
     // Subtitles (personal): file upload + offset/position.
     const fileInput = this.$(".sub-file") as HTMLInputElement | null;
     this.$(".sub-upload")?.addEventListener("click", () => fileInput?.click());
@@ -425,6 +433,9 @@ export class PartyWidget {
   .dot.on { background:#41d18a; } .dot.off { background:#f5a623; }
   .head .code { margin-left:auto; font: 700 13px ui-monospace, monospace; letter-spacing:1px; color:#6c7cff; }
   .status { padding: 8px 12px; font-size: 12px; color: #9aa0b4; border-bottom: 1px solid #2a2e3d; }
+  .reacts { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 10px; border-bottom: 1px solid #2a2e3d; }
+  .react { background: none; border: none; font-size: 20px; line-height: 1; padding: 3px 5px; cursor: pointer; border-radius: 8px; }
+  .react:hover { background: #1f2230; transform: scale(1.15); }
   .section-title { padding: 8px 12px 4px; font-size: 11px; text-transform: uppercase; letter-spacing:.5px; color:#9aa0b4; display:flex; gap:6px; }
   ul { list-style:none; margin:0; padding: 0 12px 8px; display:flex; flex-direction:column; gap:5px; }
   .members li { display:flex; align-items:center; gap:8px; font-size:13px; }
@@ -476,6 +487,7 @@ export class PartyWidget {
 <div class="panel">
   <div class="head"><span class="dot off"></span><span class="logo">sixseven</span><span class="code">${esc(this.opts.code)}</span></div>
   <div class="status">connecting…</div>
+  <div class="reacts">${REACT_EMOJIS.map((e) => `<button class="react">${e}</button>`).join("")}</div>
   <div class="section-title">Members <span class="mcount">0</span></div>
   <ul class="members"></ul>
   <div class="section-title">Activity</div>

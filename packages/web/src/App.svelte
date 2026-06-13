@@ -18,6 +18,7 @@
   import YouTubePlayer from "./components/YouTubePlayer.svelte";
   import Join from "./components/Join.svelte";
   import Members from "./components/Members.svelte";
+  import Reactions from "./components/Reactions.svelte";
   import SourcePanel from "./components/SourcePanel.svelte";
   import SubtitlePanel from "./components/SubtitlePanel.svelte";
   import { isPickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
@@ -141,9 +142,27 @@
     b.onReady = () => s.resend();
     b.onLocalControl = onLocalControlReport;
 
+    // Fun layer (§14): spawn a floating reaction for every reaction event
+    // (including our own — the server echoes it back, so everyone sees the same).
+    r.onEvent = (e) => {
+      if (e.kind === "reaction") spawnReaction(e.text);
+    };
+
     bridge = b;
     room = r;
     subs = s;
+  }
+
+  // ── reactions (float-up) ────────────────────────────────────────────────────
+  let reactions = $state<{ id: number; emoji: string; x: number }[]>([]);
+  let reactSeq = 0;
+  function spawnReaction(emoji: string) {
+    const id = reactSeq++;
+    const x = 8 + Math.random() * 84;
+    reactions = [...reactions, { id, emoji, x }];
+    setTimeout(() => {
+      reactions = reactions.filter((r) => r.id !== id);
+    }, 2300);
   }
 
   // Forward the latest server truth into the iframe (SPEC §4). Only when the
@@ -427,6 +446,10 @@
               onFullscreen={toggleFullscreen}
             />
           </div>
+        {/if}
+
+        {#if room.sync?.src}
+          <Reactions {reactions} onReact={(e) => room?.say('reaction', e)} />
         {/if}
       </div>
     </main>

@@ -148,6 +148,17 @@ export interface ResyncMessage {
   type: "resync";
 }
 
+/** Ephemeral "fun layer" broadcast (§14): an emoji reaction or a chat line, or a
+ *  GIF/image URL. The server fans it out to everyone and forgets it — never
+ *  stored in room state (it's not playback truth). `text` is the emoji, the chat
+ *  body, or the media URL depending on `kind`. */
+export type SayKind = "reaction" | "chat" | "gif";
+export interface SayMessage {
+  type: "say";
+  kind: SayKind;
+  text: string;
+}
+
 export type ClientMessage =
   | JoinMessage
   | SetSourceMessage
@@ -156,7 +167,8 @@ export type ClientMessage =
   | PassControlMessage
   | StatusMessage
   | SkipMessage
-  | ResyncMessage;
+  | ResyncMessage
+  | SayMessage;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Server → client
@@ -223,13 +235,25 @@ export interface ErrorMessage {
   message: string;
 }
 
+/** A fanned-out ephemeral fun-layer event (§14) — reaction/chat/gif. Carries the
+ *  sender so clients can label it without a member lookup. Never persisted. */
+export interface EventMessage {
+  type: "event";
+  kind: SayKind;
+  text: string;
+  from: MemberId;
+  name: string;
+  at: number;
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | SyncMessage
   | MembersMessage
   | LogMessage
   | GateMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | EventMessage;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Helpers

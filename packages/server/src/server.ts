@@ -99,6 +99,8 @@ export default class RoomServer implements Party.Server {
 
   private s: RoomState = freshState();
   private loaded = false;
+  /** Per-connection rate limit for the fun layer (§14), in-memory (ephemeral). */
+  private sayBuckets = new Map<string, { count: number; resetAt: number }>();
 
   constructor(readonly room: Party.Room) {}
 
@@ -245,6 +247,8 @@ export default class RoomServer implements Party.Server {
         this.send(sender, this.syncMessage(Date.now(), false));
         this.send(sender, this.gateMessage());
         return;
+      case "say":
+        return this.handleSay(sender, msg.kind, msg.text);
     }
   }
 
@@ -476,6 +480,34 @@ export default class RoomServer implements Party.Server {
     this.broadcastGate();
     this.broadcastSync(false); // skip resumes in place — in-sync members must not seek
     await this.persist();
+  }
+
+  // ── fun layer (§14): ephemeral reaction / chat / gif fan-out ───────────────
+
+  private handleSay(sender: Party.Connection, kind: unknown, text: unknown): void {
+    const member = this.s.members[sender.id];
+    if (!member) return;
+    if (kind !== "reaction" && kind !== "chat" && kind !== "gif") return;
+    const clean = String(text ?? "")
+      .slice(0, kind === "chat" ? 500 : 400)
+      .trim();
+    if (!clean) return;
+
+    // Light per-connection rate limit so a key-spammer can't flood the room.
+    const now = Date.now();
+    const b = this.sayBuckets.get(sender.id);
+    if (!b || now > b.resetAt) {
+      this.sayBuckets.set(sender.id, { count: 1, resetAt: now + 4000 });
+    } else if (b.count >= 12) {
+      return; // over budget — drop silently
+    } else {
+      b.count++;
+    }
+
+    // Fan out and forget — never stored in room state (it's not playback truth).
+    this.room.broadcast(
+      encode({ type: "event", kind, text: clean, from: sender.id, name: member.name, at: now }),
+    );
   }
 
   // ── the single clock (SPEC §7) ────────────────────────────────────────────

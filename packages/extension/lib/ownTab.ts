@@ -20,6 +20,7 @@ import type { Intent } from "@sixseven/protocol";
 import { parseSubtitles } from "@sixseven/protocol/subtitles";
 import { type OwnTabParty, PARTYKIT_HOST } from "./config";
 import { PartyWidget } from "./partyWidget";
+import { ReactionLayer } from "./reactionLayer";
 import { RoomSocket, type SubResult } from "./roomSocket";
 import { SubtitleLayer } from "./subtitleLayer";
 import { VideoHook } from "./videoHook";
@@ -38,6 +39,8 @@ export class OwnTabController {
   );
   private subStyle: SubtitleStyle = { ...DEFAULT_SUBTITLE_STYLE };
   private subLabel: string | null = null;
+  // Fun layer (§14): floating emoji reactions over the site's video.
+  private reactions = new ReactionLayer(() => this.hook.videoRect());
   private lastStatus: MemberStatus | null = null;
   private failTimer: ReturnType<typeof setTimeout> | null = null;
   private lastResyncAt = 0;
@@ -66,6 +69,7 @@ export class OwnTabController {
         loadResult: (r) => this.loadSubResult(r),
         selectTrack: (id) => this.selectEmbeddedTrack(id),
       },
+      onReact: (emoji) => this.socket.say("reaction", emoji),
     });
 
     this.socket = new RoomSocket(
@@ -93,12 +97,16 @@ export class OwnTabController {
         },
         onMembers: () => this.widget.update({ members: this.socket.members, selfId: this.socket.self }),
         onLog: () => this.widget.update({ log: this.socket.log }),
+        onEvent: (e) => {
+          if (e.kind === "reaction") this.reactions.spawn(e.text);
+        },
       },
     );
   }
 
   start(): void {
     this.widget.mount();
+    this.reactions.mount();
     this.subtitles.mount();
     this.subtitles.setStyle(this.subStyle);
     this.hook.allowLocalControl = true; // native play/pause/seek → room commands
@@ -317,6 +325,7 @@ export class OwnTabController {
     this.socket.destroy();
     this.hook.destroy();
     this.subtitles.destroy();
+    this.reactions.destroy();
     this.widget.destroy();
   }
 }

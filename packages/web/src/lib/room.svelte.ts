@@ -7,12 +7,14 @@
 
 import {
   type ClientMessage,
+  type EventMessage,
   type GateMessage,
   type Intent,
   type LogEvent,
   type Member,
   type MemberId,
   type Mode,
+  type SayKind,
   type SourceKind,
   type SyncMessage,
   parseServerMessage,
@@ -26,6 +28,10 @@ export class RoomClient {
   members = $state<Member[]>([]);
   gate = $state<GateMessage>({ type: "gate", paused: false, waitingFor: [] });
   log = $state<LogEvent[]>([]);
+
+  /** Ephemeral fun-layer events (§14) — reactions/chat/gif. Transient, so they
+   *  flow through a callback the UI subscribes to, not into reactive state. */
+  onEvent: (e: EventMessage) => void = () => {};
 
   /** Derived: this member's own presence row (status etc.). */
   me = $derived(this.members.find((m) => m.id === this.self) ?? null);
@@ -79,6 +85,9 @@ export class RoomClient {
           this.log = [...this.log, msg.event].slice(-100);
         }
         break;
+      case "event":
+        this.onEvent(msg);
+        break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
         break;
@@ -112,6 +121,10 @@ export class RoomClient {
   /** Ask the server for a freshly-projected `sync` (e.g. when a frame newly hooks). */
   resync(): void {
     this.send({ type: "resync" });
+  }
+  /** Fire an ephemeral fun-layer event to the room (§14). */
+  say(kind: SayKind, text: string): void {
+    this.send({ type: "say", kind, text });
   }
 
   // ── subtitle proxy (SPEC §13) ─────────────────────────────────────────────
