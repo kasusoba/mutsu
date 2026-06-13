@@ -136,6 +136,12 @@ export class VideoHook {
     return this.video?.currentTime ?? null;
   }
 
+  /** The hooked video's on-screen rect, so the subtitle layer can sit OVER the
+   *  video (not the whole page) when it's just one element on a normal site. */
+  videoRect(): DOMRect | null {
+    return this.video?.getBoundingClientRect() ?? null;
+  }
+
   // ── embedded caption tracks (the source's own subtitles) ────────────────────
 
   /** The hooked video's subtitle/caption text tracks. */
@@ -151,6 +157,17 @@ export class VideoHook {
       out.push({ id: String(i), label: t.label || t.language || `Track ${i + 1}`, language: t.language || "" });
     }
     return out;
+  }
+
+  /** Turn off every embedded track (e.g. when switching to an uploaded sub, so a
+   *  native-rendered track doesn't show on top of our overlay). */
+  disableTextTracks(): void {
+    const v = this.video;
+    if (!v) return;
+    for (let i = 0; i < v.textTracks.length; i++) {
+      const t = v.textTracks[i];
+      if (t) t.mode = "disabled";
+    }
   }
 
   /**

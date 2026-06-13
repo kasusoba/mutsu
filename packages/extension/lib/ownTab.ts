@@ -30,8 +30,12 @@ export class OwnTabController {
   private socket: RoomSocket;
   private hook = new VideoHook();
   private widget: PartyWidget;
-  // Personal subtitles (SPEC §13), never synced — rendered over the site video.
-  private subtitles = new SubtitleLayer(() => this.hook.currentTime());
+  // Personal subtitles (SPEC §13), never synced — anchored OVER the site's video
+  // element (not the whole page) via its rect.
+  private subtitles = new SubtitleLayer(
+    () => this.hook.currentTime(),
+    () => this.hook.videoRect(),
+  );
   private subStyle: SubtitleStyle = { ...DEFAULT_SUBTITLE_STYLE };
   private subLabel: string | null = null;
   private lastStatus: MemberStatus | null = null;
@@ -233,17 +237,19 @@ export class OwnTabController {
   // ── personal subtitles (apply to our layer + broadcast down to nested frames) ─
 
   async loadSubtitleFile(file: File): Promise<void> {
+    this.hook.disableTextTracks(); // an uploaded sub wins over any embedded track
     const cues = parseSubtitles(await file.text());
     this.subLabel = file.name;
     this.subtitles.setCues(cues);
     this.broadcastDown({ kind: "setSubtitles", cues });
-    this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle });
+    this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle, selectedTrack: null });
   }
   clearSubtitles(): void {
+    this.hook.disableTextTracks();
     this.subLabel = null;
     this.subtitles.setCues(null);
     this.broadcastDown({ kind: "setSubtitles", cues: null });
-    this.widget.update({ subLabel: null });
+    this.widget.update({ subLabel: null, selectedTrack: null });
   }
   patchSubStyle(patch: Partial<SubtitleStyle>): void {
     this.subStyle = { ...this.subStyle, ...patch };
@@ -258,12 +264,13 @@ export class OwnTabController {
     return [...results].sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0));
   }
   async loadSubResult(r: SubResult): Promise<void> {
+    this.hook.disableTextTracks(); // a chosen online sub wins over any embedded track
     const { vtt } = await this.socket.subsDownload(r.id);
     const cues = parseSubtitles(vtt);
     this.subLabel = `${r.title}${r.release ? ` · ${r.release}` : ""}`;
     this.subtitles.setCues(cues);
     this.broadcastDown({ kind: "setSubtitles", cues });
-    this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle });
+    this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle, selectedTrack: null });
   }
 
   /** Use one of the source's OWN caption tracks — read its cues into our overlay
@@ -285,7 +292,7 @@ export class OwnTabController {
         this.subtitles.setCues(null);
         this.broadcastDown({ kind: "setSubtitles", cues: null });
       }
-      this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle });
+      this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle, selectedTrack: id });
     });
   }
 

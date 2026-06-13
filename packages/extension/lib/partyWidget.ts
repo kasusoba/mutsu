@@ -25,6 +25,7 @@ interface WidgetState {
   subLabel: string | null;
   subStyle: SubtitleStyle;
   tracks: TrackInfo[];
+  selectedTrack: string | null;
 }
 
 interface WidgetOpts {
@@ -68,6 +69,7 @@ export class PartyWidget {
     subLabel: null,
     subStyle: { ...DEFAULT_SUBTITLE_STYLE },
     tracks: [],
+    selectedTrack: null,
   };
 
   constructor(private readonly opts: WidgetOpts) {}
@@ -166,6 +168,7 @@ export class PartyWidget {
           tracksEl.append(o);
         }
       }
+      tracksEl.value = s.selectedTrack ?? "";
     }
     const has = Boolean(s.subLabel);
     const subStyleRow = this.$(".sub-style");
@@ -275,9 +278,18 @@ export class PartyWidget {
       if (se) (se as HTMLElement).hidden = !(se as HTMLElement).hidden;
       this.$(".sub-se-toggle")?.classList.toggle("on");
     });
+    const cancelBtn = this.$(".sub-cancel") as HTMLButtonElement | null;
+    const clearSearch = () => {
+      if (q) q.value = "";
+      results?.replaceChildren();
+      if (cancelBtn) cancelBtn.hidden = true;
+    };
+    cancelBtn?.addEventListener("click", clearSearch);
+
     const doSearch = async () => {
       const query = q?.value.trim();
       if (!query || !results) return;
+      if (cancelBtn) cancelBtn.hidden = false;
       results.textContent = "Searching…";
       try {
         const hits = await this.opts.subs.search(
@@ -299,7 +311,7 @@ export class PartyWidget {
             results.textContent = "Loading…";
             try {
               await this.opts.subs.loadResult(r);
-              results.replaceChildren();
+              clearSearch();
             } catch (e) {
               results.textContent = (e as Error).message;
             }
@@ -438,6 +450,8 @@ export class PartyWidget {
   .sub-q { flex:1; min-width:0; }
   .sub-se input { flex:1; min-width:0; }
   .sub-se-toggle.on { border-color:#6c7cff; color:#6c7cff; }
+  .sub-cancel[hidden] { display:none; }
+  .sub-cancel { color:#9aa0b4; }
   .sub-results { display:flex; flex-direction:column; gap:4px; max-height:150px; overflow:auto; font-size:12px; color:#9aa0b4; }
   .sub-result { width:100%; text-align:left; display:flex; flex-direction:column; gap:2px; padding:5px 8px; }
   .sr-title { color:#e7e9ef; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -471,6 +485,7 @@ export class PartyWidget {
       <input class="sub-q" type="text" placeholder="search online — title" />
       <button class="sub-se-toggle" title="TV show?">S/E</button>
       <button class="sub-go">Search</button>
+      <button class="sub-cancel" title="Clear search" hidden>✕</button>
     </div>
     <div class="sub-se" hidden>
       <input class="sub-season" type="number" min="1" placeholder="season" />
