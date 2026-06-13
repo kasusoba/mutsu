@@ -19,6 +19,7 @@
   import YouTubePlayer from "./components/YouTubePlayer.svelte";
   import Join from "./components/Join.svelte";
   import Chat from "./components/Chat.svelte";
+  import GifPicker from "./components/GifPicker.svelte";
   import Members from "./components/Members.svelte";
   import Reactions from "./components/Reactions.svelte";
   import SourcePanel from "./components/SourcePanel.svelte";
@@ -149,6 +150,7 @@
     // briefly floats as a bubble.
     r.onEvent = (e) => {
       if (e.kind === "reaction") spawnReaction(e.text);
+      else if (e.kind === "gif") spawnGif(e.text);
       else if (e.kind === "chat") addChat(e.name, e.text, e.from === r.self);
     };
 
@@ -157,8 +159,8 @@
     subs = s;
   }
 
-  // ── reactions (float-up) ────────────────────────────────────────────────────
-  let reactions = $state<{ id: number; emoji: string; x: number }[]>([]);
+  // ── reactions + gifs (float-up) ─────────────────────────────────────────────
+  let reactions = $state<{ id: number; x: number; emoji?: string; gif?: string }[]>([]);
   let funSeq = 0;
   function spawnReaction(emoji: string) {
     const id = funSeq++;
@@ -167,6 +169,14 @@
     setTimeout(() => {
       reactions = reactions.filter((r) => r.id !== id);
     }, 2300);
+  }
+  function spawnGif(url: string) {
+    const id = funSeq++;
+    const x = 12 + Math.random() * 60;
+    reactions = [...reactions, { id, gif: url, x }];
+    setTimeout(() => {
+      reactions = reactions.filter((r) => r.id !== id);
+    }, 6000);
   }
 
   // ── chat (sidebar panel + transient bubbles over the player) ────────────────
@@ -347,9 +357,12 @@
           </button>
           {#if reactOpen}
             <div class="react-pop">
-              {#each REACT_EMOJIS as e (e)}
-                <button class="react-emoji" onclick={() => room?.say('reaction', e)}>{e}</button>
-              {/each}
+              <div class="emoji-row">
+                {#each REACT_EMOJIS as e (e)}
+                  <button class="react-emoji" onclick={() => room?.say('reaction', e)}>{e}</button>
+                {/each}
+              </div>
+              <GifPicker {room} onSend={(url) => room?.say('gif', url)} />
             </div>
           {/if}
         </div>
@@ -579,12 +592,17 @@
     left: 0;
     z-index: 30;
     display: flex;
-    gap: 2px;
-    padding: 4px 6px;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 999px;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+    border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  }
+  .emoji-row {
+    display: flex;
+    gap: 2px;
   }
   .react-emoji {
     background: none;

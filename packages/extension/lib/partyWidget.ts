@@ -12,7 +12,7 @@
 import type { GateMessage, Member, MemberId, MemberStatus } from "@sixseven/protocol";
 import { DEFAULT_SUBTITLE_STYLE, type SubtitleStyle } from "@sixseven/protocol/bridge";
 import { browser } from "wxt/browser";
-import type { SubResult } from "./roomSocket";
+import type { GifResult, SubResult } from "./roomSocket";
 import type { TrackInfo } from "./videoHook";
 
 interface WidgetState {
@@ -45,7 +45,14 @@ interface WidgetOpts {
   onReact: (emoji: string) => void;
   /** Send a chat message to the room (§14). */
   onChat: (text: string) => void;
+  /** Send a GIF (by URL) to the room (§14). */
+  onGif: (url: string) => void;
+  /** Search GIPHY via the proxy. */
+  gifSearch: (query: string) => Promise<GifResult[]>;
 }
+
+type FavGif = GifResult & { q: string };
+const GIF_FAV_KEY = "sixseven:gifFavs";
 
 const REACT_EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "😢", "🎉"];
 
@@ -65,6 +72,10 @@ export class PartyWidget {
   private expanded = false;
   private dragging = false;
   private moved = false;
+  // GIF picker state (§14).
+  private gifTab: "search" | "favs" = "search";
+  private gifResults: GifResult[] = [];
+  private gifFavs: FavGif[] = [];
   private state: WidgetState = {
     connected: false,
     members: [],
@@ -94,6 +105,8 @@ export class PartyWidget {
     await this.restorePosition();
     const hidden = (await browser.storage.local.get(HIDDEN_KEY))[HIDDEN_KEY];
     if (hidden) this.setHidden(true);
+    const savedFavs = (await browser.storage.local.get(GIF_FAV_KEY))[GIF_FAV_KEY];
+    if (Array.isArray(savedFavs)) this.gifFavs = savedFavs as FavGif[];
     this.render();
   }
 
@@ -209,6 +222,55 @@ export class PartyWidget {
     if (color && this.root?.activeElement !== color) color.value = s.subStyle.color;
   }
 
+  // ── GIF picker grid ──────────────────────────────────────────────────────────
+
+  private renderGifGrid(): void {
+    const grid = this.$(".gif-grid");
+    if (!grid) return;
+    let items: GifResult[];
+    if (this.gifTab === "favs") {
+      if (!this.gifFavs.length) {
+        grid.innerHTML = `<div class="gif-msg">No favorites yet — star a GIF from Search.</div>`;
+        return;
+      }
+      const f = (this.$(".gif-q") as HTMLInputElement | null)?.value.trim().toLowerCase() ?? "";
+      items = f ? this.gifFavs.filter((g) => g.q.toLowerCase().includes(f)) : this.gifFavs;
+    } else {
+      items = this.gifResults;
+    }
+    grid.replaceChildren();
+    for (const g of items) {
+      const tile = document.createElement("div");
+      tile.className = "gtile";
+      const send = document.createElement("button");
+      send.className = "gsend";
+      send.title = "Send";
+      const img = document.createElement("img");
+      img.src = g.preview;
+      img.alt = "gif";
+      img.loading = "lazy";
+      send.append(img);
+      send.addEventListener("click", () => this.opts.onGif(g.url));
+      const star = document.createElement("button");
+      star.className = "gstar";
+      star.textContent = "★";
+      star.classList.toggle("on", this.gifFavs.some((f) => f.url === g.url));
+      star.addEventListener("click", () => this.toggleGifFav(g));
+      tile.append(send, star);
+      grid.append(tile);
+    }
+  }
+
+  private toggleGifFav(g: GifResult): void {
+    const exists = this.gifFavs.some((f) => f.url === g.url);
+    const q = (this.$(".gif-q") as HTMLInputElement | null)?.value.trim() ?? "";
+    this.gifFavs = exists
+      ? this.gifFavs.filter((f) => f.url !== g.url)
+      : [{ ...g, q }, ...this.gifFavs].slice(0, 60);
+    browser.storage.local.set({ [GIF_FAV_KEY]: this.gifFavs });
+    this.renderGifGrid();
+  }
+
   private statusText(): string {
     const s = this.state;
     if (!s.connected) return "reconnecting…";
@@ -262,6 +324,45 @@ export class PartyWidget {
       const show = (body as HTMLElement).hidden;
       (body as HTMLElement).hidden = !show;
       t?.classList.toggle("open", show);
+    });
+
+    // ── GIF picker ──
+    this.$(".gif-toggle")?.addEventListener("click", () => {
+      const body = this.$(".gifs");
+      const t = this.$(".gif-toggle");
+      if (!body) return;
+      const show = (body as HTMLElement).hidden;
+      (body as HTMLElement).hidden = !show;
+      t?.classList.toggle("open", show);
+    });
+    const gifQ = this.$(".gif-q") as HTMLInputElement | null;
+    const setGifTab = (tab: "search" | "favs") => {
+      this.gifTab = tab;
+      this.$(".gt-search")?.classList.toggle("on", tab === "search");
+      this.$(".gt-favs")?.classList.toggle("on", tab === "favs");
+      if (gifQ) gifQ.placeholder = tab === "search" ? "Search GIFs…" : "Filter favorites…";
+      this.renderGifGrid();
+    };
+    this.$(".gt-search")?.addEventListener("click", () => setGifTab("search"));
+    this.$(".gt-favs")?.addEventListener("click", () => setGifTab("favs"));
+    const runGifSearch = async () => {
+      const q = gifQ?.value.trim();
+      if (!q) return;
+      const grid = this.$(".gif-grid");
+      if (grid) grid.innerHTML = `<div class="gif-msg">Searching…</div>`;
+      try {
+        this.gifResults = await this.opts.gifSearch(q);
+        this.renderGifGrid();
+      } catch {
+        if (grid) grid.innerHTML = `<div class="gif-msg">Search failed.</div>`;
+      }
+    };
+    this.$(".gif-go")?.addEventListener("click", runGifSearch);
+    gifQ?.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter" && this.gifTab === "search") runGifSearch();
+    });
+    gifQ?.addEventListener("input", () => {
+      if (this.gifTab === "favs") this.renderGifGrid();
     });
 
     const chatIn = this.$(".chat-in") as HTMLInputElement | null;
@@ -496,7 +597,23 @@ export class PartyWidget {
   button.sub-toggle:hover { color:#e7e9ef; }
   .subs[hidden] { display:none; }
   .caret { transition: transform .15s; }
-  button.sub-toggle.open .caret { transform: rotate(180deg); }
+  button.sub-toggle.open .caret, button.gif-toggle.open .caret { transform: rotate(180deg); }
+  button.gif-toggle { width:100%; background:none; border:none; border-radius:0; justify-content:space-between; align-items:center; cursor:pointer; }
+  button.gif-toggle:hover { color:#e7e9ef; }
+  .gifs[hidden] { display:none; }
+  .gifs { padding: 0 12px 8px; display:flex; flex-direction:column; gap:6px; }
+  .gif-tabs { display:flex; gap:4px; }
+  .gt { flex:1; background:none; border:none; border-bottom:2px solid transparent; border-radius:0; color:#9aa0b4; font-size:12px; padding:4px; cursor:pointer; }
+  .gt.on { color:#e7e9ef; border-bottom-color:#6c7cff; }
+  .gif-row { display:flex; gap:6px; }
+  .gif-q { flex:1; min-width:0; font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; }
+  .gif-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; max-height:200px; overflow:auto; }
+  .gtile { position:relative; aspect-ratio:1; }
+  .gtile .gsend { width:100%; height:100%; padding:0; border:none; border-radius:8px; overflow:hidden; background:#0e0f13; cursor:pointer; }
+  .gtile img { width:100%; height:100%; object-fit:cover; display:block; }
+  .gtile .gstar { position:absolute; top:3px; right:3px; width:20px; height:20px; padding:0; border:none; border-radius:50%; background:rgba(0,0,0,.6); color:#fff; font-size:11px; cursor:pointer; }
+  .gtile .gstar.on { color:#f5a623; }
+  .gif-msg { font-size:12px; color:#9aa0b4; padding:4px 0; }
   ul { list-style:none; margin:0; padding: 0 12px 8px; display:flex; flex-direction:column; gap:5px; }
   .members li { display:flex; align-items:center; gap:8px; font-size:13px; }
   .mdot { width:8px; height:8px; border-radius:50%; background:#9aa0b4; flex:none; }
@@ -559,6 +676,12 @@ export class PartyWidget {
   <div class="section-title">Chat</div>
   <ul class="chat"></ul>
   <form class="chat-form"><input class="chat-in" type="text" placeholder="Message…" maxlength="500" /><button class="chat-send">Send</button></form>
+  <button class="section-title gif-toggle">GIF<span class="caret">▾</span></button>
+  <div class="gifs" hidden>
+    <div class="gif-tabs"><button class="gt gt-search on">Search</button><button class="gt gt-favs">★ Favs</button></div>
+    <div class="gif-row"><input class="gif-q" type="text" placeholder="Search GIFs…" /><button class="gif-go">Go</button></div>
+    <div class="gif-grid"></div>
+  </div>
   <button class="section-title sub-toggle">Subtitles<span class="caret">▾</span></button>
   <div class="subs" hidden>
     <div class="sub-row">

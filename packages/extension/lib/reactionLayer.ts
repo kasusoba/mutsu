@@ -27,6 +27,14 @@ export class ReactionLayer {
         15% { transform: translate(-50%,-10px) scale(1.1); opacity:1; }
         100% { transform: translate(-50%,-220px) scale(1); opacity:0; }
       }
+      .g { position:absolute; bottom:10%; max-width:160px; max-height:160px; border-radius:10px;
+           box-shadow:0 6px 22px rgba(0,0,0,.5); animation: gfloat 6s ease-out forwards; }
+      @keyframes gfloat {
+        0% { transform: translate(-50%,20px) scale(.85); opacity:0; }
+        8% { transform: translate(-50%,0) scale(1); opacity:1; }
+        85% { transform: translate(-50%,-40px); opacity:1; }
+        100% { transform: translate(-50%,-70px); opacity:0; }
+      }
       .chatbox { position:absolute; left:14px; bottom:14px; display:flex; flex-direction:column;
                  gap:6px; max-width:60%; }
       .cb { align-self:flex-start; padding:6px 11px; border-radius:14px; background:rgba(0,0,0,.72);
@@ -71,6 +79,17 @@ export class ReactionLayer {
     el.style.left = `${8 + Math.random() * 84}%`;
     this.layer.append(el);
     setTimeout(() => el.remove(), 2300);
+  }
+
+  /** Float a transient GIF over the video (own-tab). */
+  gif(url: string): void {
+    const el = document.createElement("img");
+    el.className = "g";
+    el.src = url;
+    el.alt = "gif";
+    el.style.left = `${20 + Math.random() * 60}%`;
+    this.layer.append(el);
+    setTimeout(() => el.remove(), 6000);
   }
 
   /** Float a transient chat bubble over the video (own-tab). */

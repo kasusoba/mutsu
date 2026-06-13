@@ -182,10 +182,22 @@ export class RoomSocket {
   subsDownload(id: string): Promise<{ vtt: string }> {
     return this.proxy("subs.download", { id });
   }
+  gifSearch(query: string): Promise<{ results: GifResult[] }> {
+    return this.proxy("gif.search", { query });
+  }
 
   destroy(): void {
     this.socket.close();
   }
+}
+
+/** A GIF search hit from the proxy (§14). */
+export interface GifResult {
+  id: string;
+  url: string;
+  preview: string;
+  width: number;
+  height: number;
 }
 
 /** A subtitle search hit from the proxy (mirrors the server's normalized shape). */

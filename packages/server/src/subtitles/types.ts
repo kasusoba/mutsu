@@ -38,6 +38,8 @@ export interface SubEnv {
   OS_PASSWORD?: string;
   SUBDL_API_KEY?: string;
   SUBS_PROVIDER_ORDER?: string;
+  /** GIPHY search key (§14 fun layer); proxied so it never reaches the client. */
+  GIPHY_API_KEY?: string;
 }
 
 export interface SubProvider {

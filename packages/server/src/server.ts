@@ -32,6 +32,7 @@ import {
   parseClientMessage,
 } from "@sixseven/protocol";
 import type * as Party from "partykit/server";
+import { searchGifs } from "./gif.ts";
 import { QuotaError, type SubEnv, downloadSubtitle, searchSubtitles } from "./subtitles/index.ts";
 
 /** Per-room authoritative state, persisted under a single storage key. */
@@ -184,6 +185,11 @@ export default class RoomServer implements Party.Server {
       if (body.op === "subs.download") {
         const vtt = await downloadSubtitle(String(body.id ?? ""), env);
         return this.json({ vtt }, 200, cors);
+      }
+      if (body.op === "gif.search") {
+        if (!env.GIPHY_API_KEY) return this.json({ error: "gif_not_configured" }, 200, cors);
+        const results = await searchGifs(String(body.query ?? ""), env.GIPHY_API_KEY);
+        return this.json({ results }, 200, cors);
       }
       return this.json({ error: "unknown op" }, 400, cors);
     } catch (e) {

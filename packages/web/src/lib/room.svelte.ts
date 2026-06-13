@@ -161,9 +161,23 @@ export class RoomClient {
     return this.proxy("subs.download", { id });
   }
 
+  /** GIPHY search via the member-gated proxy (§14). */
+  gifSearch(query: string): Promise<{ results: GifResult[] }> {
+    return this.proxy("gif.search", { query });
+  }
+
   destroy(): void {
     this.socket.close();
   }
+}
+
+/** A GIF search hit from the proxy (§14). */
+export interface GifResult {
+  id: string;
+  url: string;
+  preview: string;
+  width: number;
+  height: number;
 }
 
 /** A subtitle search hit from the proxy (mirrors the server's normalized shape). */

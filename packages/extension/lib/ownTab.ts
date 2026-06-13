@@ -73,6 +73,8 @@ export class OwnTabController {
       },
       onReact: (emoji) => this.socket.say("reaction", emoji),
       onChat: (text) => this.socket.say("chat", text),
+      onGif: (url) => this.socket.say("gif", url),
+      gifSearch: (q) => this.socket.gifSearch(q).then((r) => r.results),
     });
 
     this.socket = new RoomSocket(
@@ -102,6 +104,8 @@ export class OwnTabController {
         onEvent: (e) => {
           if (e.kind === "reaction") {
             this.reactions.spawn(e.text);
+          } else if (e.kind === "gif") {
+            this.reactions.gif(e.text);
           } else if (e.kind === "chat") {
             this.reactions.chat(e.name, e.text);
             this.chatLog = [
