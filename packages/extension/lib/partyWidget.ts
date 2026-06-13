@@ -10,7 +10,10 @@
  */
 
 import type { GateMessage, LogEvent, Member, MemberId, MemberStatus } from "@sixseven/protocol";
+import { DEFAULT_SUBTITLE_STYLE, type SubtitleStyle } from "@sixseven/protocol/bridge";
 import { browser } from "wxt/browser";
+import type { SubResult } from "./roomSocket";
+import type { TrackInfo } from "./videoHook";
 
 interface WidgetState {
   connected: boolean;
@@ -19,12 +22,25 @@ interface WidgetState {
   selfId: MemberId | null;
   log: LogEvent[];
   playerStatus: MemberStatus;
+  subLabel: string | null;
+  subStyle: SubtitleStyle;
+  tracks: TrackInfo[];
+  selectedTrack: string | null;
 }
 
 interface WidgetOpts {
   code: string;
   sourceUrl: string;
   onLeave: () => void;
+  /** Personal subtitle controls — owned by the controller. */
+  subs: {
+    loadFile: (file: File) => void;
+    clear: () => void;
+    patchStyle: (patch: Partial<SubtitleStyle>) => void;
+    search: (query: string, season?: number, episode?: number) => Promise<SubResult[]>;
+    loadResult: (r: SubResult) => Promise<void>;
+    selectTrack: (id: string | null) => void;
+  };
 }
 
 const POS_KEY = "sixseven:widgetPos";
@@ -50,6 +66,10 @@ export class PartyWidget {
     selfId: null,
     log: [],
     playerStatus: "loading",
+    subLabel: null,
+    subStyle: { ...DEFAULT_SUBTITLE_STYLE },
+    tracks: [],
+    selectedTrack: null,
   };
 
   constructor(private readonly opts: WidgetOpts) {}
@@ -126,6 +146,51 @@ export class PartyWidget {
         .map((e) => `<li>${esc(describe(e, s.members))}</li>`)
         .join("");
     }
+
+    const subLabel = this.$(".sub-label");
+    if (subLabel) subLabel.textContent = s.subLabel ?? "no subtitles";
+    const tracksEl = this.$(".sub-tracks") as HTMLSelectElement | null;
+    if (tracksEl) {
+      (tracksEl as HTMLElement).hidden = s.tracks.length === 0;
+      // Rebuild options only when the track set changes (don't clobber selection).
+      const sig = s.tracks.map((t) => t.id).join(",");
+      if (tracksEl.dataset.sig !== sig) {
+        tracksEl.dataset.sig = sig;
+        tracksEl.replaceChildren();
+        const off = document.createElement("option");
+        off.value = "";
+        off.textContent = "Site captions: off";
+        tracksEl.append(off);
+        for (const t of s.tracks) {
+          const o = document.createElement("option");
+          o.value = t.id;
+          o.textContent = `Site: ${t.label}`;
+          tracksEl.append(o);
+        }
+      }
+      tracksEl.value = s.selectedTrack ?? "";
+    }
+    const has = Boolean(s.subLabel);
+    const subStyleRow = this.$(".sub-style");
+    if (subStyleRow) (subStyleRow as HTMLElement).hidden = !has;
+    const subStyle2 = this.$(".sub-style2");
+    if (subStyle2) (subStyle2 as HTMLElement).hidden = !has;
+    const subOff = this.$(".sub-off");
+    if (subOff) subOff.textContent = `${(s.subStyle.offsetMs / 1000).toFixed(2)}s`;
+    const subPos = this.$(".sub-pos");
+    if (subPos) subPos.textContent = s.subStyle.position;
+    // Reflect the style sliders (only overwrite when not focused, so dragging
+    // one doesn't fight the re-render).
+    const setRange = (sel: string, v: number) => {
+      const el = this.$(sel) as HTMLInputElement | null;
+      if (el && this.root?.activeElement !== el) el.value = String(v);
+    };
+    setRange(".sub-offset", s.subStyle.offsetMs / 1000);
+    setRange(".sub-size", s.subStyle.sizePct);
+    setRange(".sub-dist", s.subStyle.marginPct);
+    setRange(".sub-box", s.subStyle.background);
+    const color = this.$(".sub-color") as HTMLInputElement | null;
+    if (color && this.root?.activeElement !== color) color.value = s.subStyle.color;
   }
 
   private statusText(): string {
@@ -168,6 +233,102 @@ export class PartyWidget {
       this.setHidden(true);
     });
     this.$(".leave")?.addEventListener("click", () => this.opts.onLeave());
+
+    // Subtitles (personal): file upload + offset/position.
+    const fileInput = this.$(".sub-file") as HTMLInputElement | null;
+    this.$(".sub-upload")?.addEventListener("click", () => fileInput?.click());
+    fileInput?.addEventListener("change", () => {
+      const f = fileInput.files?.[0];
+      if (f) this.opts.subs.loadFile(f);
+      fileInput.value = "";
+    });
+    this.$(".sub-off-dn")?.addEventListener("click", () =>
+      this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs - 100 }),
+    );
+    this.$(".sub-off-up")?.addEventListener("click", () =>
+      this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs + 100 }),
+    );
+    const offset = this.$(".sub-offset") as HTMLInputElement | null;
+    offset?.addEventListener("input", () =>
+      this.opts.subs.patchStyle({ offsetMs: Math.round(+offset.value * 1000) }),
+    );
+    this.$(".sub-pos")?.addEventListener("click", () =>
+      this.opts.subs.patchStyle({
+        position: this.state.subStyle.position === "bottom" ? "top" : "bottom",
+      }),
+    );
+    this.$(".sub-clear")?.addEventListener("click", () => this.opts.subs.clear());
+
+    const size = this.$(".sub-size") as HTMLInputElement | null;
+    size?.addEventListener("input", () => this.opts.subs.patchStyle({ sizePct: +size.value }));
+    const dist = this.$(".sub-dist") as HTMLInputElement | null;
+    dist?.addEventListener("input", () => this.opts.subs.patchStyle({ marginPct: +dist.value }));
+    const color = this.$(".sub-color") as HTMLInputElement | null;
+    color?.addEventListener("input", () => this.opts.subs.patchStyle({ color: color.value }));
+    const box = this.$(".sub-box") as HTMLInputElement | null;
+    box?.addEventListener("input", () => this.opts.subs.patchStyle({ background: +box.value }));
+
+    // Online subtitle search (member-gated proxy via the controller).
+    const q = this.$(".sub-q") as HTMLInputElement | null;
+    const seasonEl = this.$(".sub-season") as HTMLInputElement | null;
+    const epEl = this.$(".sub-ep") as HTMLInputElement | null;
+    const results = this.$(".sub-results");
+    this.$(".sub-se-toggle")?.addEventListener("click", () => {
+      const se = this.$(".sub-se");
+      if (se) (se as HTMLElement).hidden = !(se as HTMLElement).hidden;
+      this.$(".sub-se-toggle")?.classList.toggle("on");
+    });
+    const cancelBtn = this.$(".sub-cancel") as HTMLButtonElement | null;
+    const clearSearch = () => {
+      if (q) q.value = "";
+      results?.replaceChildren();
+      if (cancelBtn) cancelBtn.hidden = true;
+    };
+    cancelBtn?.addEventListener("click", clearSearch);
+
+    const doSearch = async () => {
+      const query = q?.value.trim();
+      if (!query || !results) return;
+      if (cancelBtn) cancelBtn.hidden = false;
+      results.textContent = "Searching…";
+      try {
+        const hits = await this.opts.subs.search(
+          query,
+          seasonEl?.value ? +seasonEl.value : undefined,
+          epEl?.value ? +epEl.value : undefined,
+        );
+        if (!hits.length) {
+          results.textContent = "No subtitles found — try the exact title.";
+          return;
+        }
+        results.replaceChildren();
+        for (const r of hits.slice(0, 12)) {
+          const b = document.createElement("button");
+          b.className = "sub-result";
+          const dl = r.downloads ? ` · ↓${r.downloads.toLocaleString()}` : "";
+          b.innerHTML = `<span class="sr-title">${esc(r.release ?? r.title)}</span><span class="sr-meta">${esc(r.language)}${dl} · ${esc(r.provider)}</span>`;
+          b.addEventListener("click", async () => {
+            results.textContent = "Loading…";
+            try {
+              await this.opts.subs.loadResult(r);
+              clearSearch();
+            } catch (e) {
+              results.textContent = (e as Error).message;
+            }
+          });
+          results.append(b);
+        }
+      } catch (e) {
+        results.textContent = (e as Error).message;
+      }
+    };
+    this.$(".sub-go")?.addEventListener("click", doSearch);
+    q?.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter") doSearch();
+    });
+
+    const tracks = this.$(".sub-tracks") as HTMLSelectElement | null;
+    tracks?.addEventListener("change", () => this.opts.subs.selectTrack(tracks.value || null));
   }
 
   private onDown = (e: PointerEvent): void => {
@@ -248,8 +409,8 @@ export class PartyWidget {
   .bdot { position:absolute; bottom: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #171922; }
   .panel {
     display: none; flex-direction: column; gap: 0; position: absolute; bottom: 0; right: 60px;
-    width: 280px; max-height: 60vh; background: #171922; color: #e7e9ef;
-    border: 1px solid #2a2e3d; border-radius: 14px; overflow: hidden;
+    width: 280px; max-height: 70vh; background: #171922; color: #e7e9ef;
+    border: 1px solid #2a2e3d; border-radius: 14px; overflow-y: auto;
     box-shadow: 0 16px 48px rgba(0,0,0,.55);
   }
   .head { display:flex; align-items:center; gap:8px; padding: 10px 12px; border-bottom: 1px solid #2a2e3d; }
@@ -266,8 +427,35 @@ export class PartyWidget {
   .mname{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .you{color:#9aa0b4;}
   .mstat{font-size:11px; color:#9aa0b4;}
-  .log { max-height: 140px; overflow:auto; }
+  .log { max-height: 110px; overflow:auto; }
   .log li { font-size:12px; color:#c7cad6; }
+  .subs { padding: 0 12px 8px; display:flex; flex-direction:column; gap:6px; }
+  .sub-row { display:flex; align-items:center; gap:8px; }
+  .sub-label { font-size:11px; color:#9aa0b4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .sub-style { display:flex; align-items:center; gap:6px; }
+  .sub-style[hidden], .sub-style2[hidden] { display:none; }
+  .sub-off { font:12px ui-monospace,monospace; min-width:42px; text-align:center; }
+  .sub-clear { margin-left:auto; color:#9aa0b4; }
+  .subs button { padding:4px 8px; }
+  .sub-style2 { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .sub-mini { font-size:11px; color:#9aa0b4; }
+  .sub-range { flex:1; min-width:54px; accent-color:#6c7cff; }
+  .sub-color { width:28px; height:24px; padding:0; border:1px solid #2a2e3d; background:none; border-radius:6px; cursor:pointer; }
+  .sub-tracks { font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; width:100%; }
+  .sub-tracks[hidden] { display:none; }
+  .sub-search { display:flex; gap:6px; }
+  .sub-se { display:flex; gap:6px; }
+  .sub-se[hidden] { display:none; }
+  .sub-q, .sub-se input { font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; }
+  .sub-q { flex:1; min-width:0; }
+  .sub-se input { flex:1; min-width:0; }
+  .sub-se-toggle.on { border-color:#6c7cff; color:#6c7cff; }
+  .sub-cancel[hidden] { display:none; }
+  .sub-cancel { color:#9aa0b4; }
+  .sub-results { display:flex; flex-direction:column; gap:4px; max-height:150px; overflow:auto; font-size:12px; color:#9aa0b4; }
+  .sub-result { width:100%; text-align:left; display:flex; flex-direction:column; gap:2px; padding:5px 8px; }
+  .sr-title { color:#e7e9ef; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sr-meta { font-size:10px; color:#9aa0b4; }
   .foot { display:flex; gap:8px; padding:10px 12px; border-top:1px solid #2a2e3d; }
   button { font:inherit; font-size:12px; cursor:pointer; border-radius:8px; padding:6px 10px; border:1px solid #2a2e3d; background:#1f2230; color:#e7e9ef; }
   button:hover { border-color:#6c7cff; }
@@ -286,6 +474,44 @@ export class PartyWidget {
   <ul class="members"></ul>
   <div class="section-title">Activity</div>
   <ul class="log"></ul>
+  <div class="section-title">Subtitles</div>
+  <div class="subs">
+    <div class="sub-row">
+      <button class="sub-upload">Upload .srt / .vtt</button>
+      <span class="sub-label">no subtitles</span>
+    </div>
+    <select class="sub-tracks" hidden></select>
+    <div class="sub-search">
+      <input class="sub-q" type="text" placeholder="search online — title" />
+      <button class="sub-se-toggle" title="TV show?">S/E</button>
+      <button class="sub-go">Search</button>
+      <button class="sub-cancel" title="Clear search" hidden>✕</button>
+    </div>
+    <div class="sub-se" hidden>
+      <input class="sub-season" type="number" min="1" placeholder="season" />
+      <input class="sub-ep" type="number" min="1" placeholder="episode" />
+    </div>
+    <div class="sub-results"></div>
+    <div class="sub-style" hidden>
+      <span class="sub-mini">offset</span>
+      <button class="sub-off-dn" title="−0.1s">−</button>
+      <input class="sub-offset sub-range" type="range" min="-5" max="5" step="0.05" />
+      <button class="sub-off-up" title="+0.1s">+</button>
+      <span class="sub-off">0.00s</span>
+    </div>
+    <div class="sub-style2" hidden>
+      <button class="sub-pos">bottom</button>
+      <span class="sub-mini">size</span>
+      <input class="sub-size sub-range" type="range" min="60" max="220" step="5" />
+      <span class="sub-mini">dist</span>
+      <input class="sub-dist sub-range" type="range" min="0" max="40" step="1" />
+      <input class="sub-color" type="color" title="Text colour" />
+      <span class="sub-mini">box</span>
+      <input class="sub-box sub-range" type="range" min="0" max="1" step="0.1" />
+      <button class="sub-clear">clear</button>
+    </div>
+    <input class="sub-file" type="file" accept=".srt,.vtt" hidden />
+  </div>
   <div class="foot">
     <button class="hide" title="Hide the widget (controls stay in the popup)">Hide</button>
     <button class="copy">Copy code</button>

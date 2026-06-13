@@ -28,20 +28,30 @@ export class SubtitleLayer {
   private style: SubtitleStyle = { ...DEFAULT_SUBTITLE_STYLE };
   private raf = 0;
   private lastText = "";
+  private hostH = 0;
   private styleCalls = 0;
   private cueCalls = 0;
 
-  constructor(private readonly getTime: () => number | null) {
+  /**
+   * @param getTime  current video time (seconds), or null when no video.
+   * @param getRect  optional: the video's on-screen rect. When given (own-tab —
+   *   the video is one element on a normal page), the layer sits OVER the video.
+   *   When omitted (embed sub-frame, where the iframe IS the video area), it
+   *   covers the viewport as before.
+   */
+  constructor(
+    private readonly getTime: () => number | null,
+    private readonly getRect?: () => DOMRect | null,
+  ) {
     this.host = document.createElement("div");
     Object.assign(this.host.style, {
       position: "fixed",
-      left: "0",
-      right: "0",
       zIndex: "2147483646",
       display: "flex",
-      justifyContent: "center",
+      flexDirection: "column",
+      alignItems: "center",
       pointerEvents: "none",
-      padding: "0 5vw",
+      boxSizing: "border-box",
     } satisfies Partial<CSSStyleDeclaration>);
 
     this.box = document.createElement("div");
@@ -96,7 +106,10 @@ export class SubtitleLayer {
 
   setCues(cues: SubtitleCue[] | null): void {
     this.cues = cues ?? [];
-    this.lastText = "";
+    // NB: don't reset lastText here — render()'s setText() dedupes against it, so
+    // zeroing it would make a clear (new text "" === lastText "") skip the DOM
+    // update and leave the last cue stuck on screen. Leaving lastText as the
+    // showing text lets the next render detect the change to "" and clear it.
     this.cueCalls++;
   }
 
@@ -111,25 +124,44 @@ export class SubtitleLayer {
     this.applyStyle();
   }
 
+  /** Colour/box only — geometry (position, size, margin) is per-frame in layout(). */
   private applyStyle(): void {
     const s = this.style;
     this.box.style.color = s.color;
     this.box.style.opacity = String(s.opacity);
     this.box.style.background = `rgba(0,0,0,${s.background})`;
-    // Base size ~3.2% of viewport height, scaled by the user's percentage.
-    this.box.style.fontSize = `calc(3.2vh * ${s.sizePct / 100})`;
-    if (s.position === "top") {
-      this.host.style.top = `${s.marginPct}%`;
-      this.host.style.bottom = "";
-      this.host.style.alignItems = "flex-start";
+  }
+
+  /** Anchor the layer over the video rect (own-tab) or the viewport (embed),
+   *  and size the cue + its margin relative to that box's height. */
+  private layout(): void {
+    const s = this.style;
+    const rect = this.getRect?.() ?? null;
+    const full = document.fullscreenElement;
+    if (rect && rect.width > 1 && rect.height > 1 && !full) {
+      this.host.style.left = `${rect.left}px`;
+      this.host.style.top = `${rect.top}px`;
+      this.host.style.width = `${rect.width}px`;
+      this.host.style.height = `${rect.height}px`;
+      this.hostH = rect.height;
     } else {
-      this.host.style.bottom = `${s.marginPct}%`;
-      this.host.style.top = "";
-      this.host.style.alignItems = "flex-end";
+      this.host.style.left = "0";
+      this.host.style.top = "0";
+      this.host.style.width = "100vw";
+      this.host.style.height = "100vh";
+      this.hostH = window.innerHeight;
     }
+    this.host.style.justifyContent = s.position === "top" ? "flex-start" : "flex-end";
+    const pad = `${(s.marginPct / 100) * this.hostH}px`;
+    this.host.style.paddingTop = s.position === "top" ? pad : "0";
+    this.host.style.paddingBottom = s.position === "top" ? "0" : pad;
+    this.host.style.paddingLeft = "5%";
+    this.host.style.paddingRight = "5%";
+    this.box.style.fontSize = `${Math.max(12, this.hostH * 0.05 * (s.sizePct / 100))}px`;
   }
 
   private render(): void {
+    this.layout();
     const t = this.getTime();
     const ref = t == null ? null : t - this.style.offsetMs / 1000;
 

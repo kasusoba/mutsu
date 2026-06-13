@@ -61,14 +61,17 @@ export class SubtitleController {
     this.setCues(parseSubtitles(text), file.name);
   }
 
-  async search(query: string): Promise<void> {
+  async search(query: string, season?: number, episode?: number): Promise<void> {
     if (!query.trim()) return;
     this.searching = true;
     this.error = null;
     try {
-      const { results } = await this.room.subsSearch(query.trim());
-      this.results = results;
-      if (results.length === 0) this.error = "No subtitles found.";
+      const { results } = await this.room.subsSearch(query.trim(), "en", season, episode);
+      // Best-first: most-downloaded on top (the providers' strongest quality
+      // signal). We also ask the server to order, but sort here too so mixed
+      // providers / older servers still rank sensibly.
+      this.results = [...results].sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0));
+      if (results.length === 0) this.error = "No subtitles found — try the show's exact title.";
     } catch (e) {
       this.error = (e as Error).message;
     } finally {

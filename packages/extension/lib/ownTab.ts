@@ -14,12 +14,14 @@
  */
 
 import type { MemberStatus, SyncMessage } from "@sixseven/protocol";
-import type { FrameToPageMessage, PageToFrameMessage } from "@sixseven/protocol/bridge";
-import { unwrap, wrap } from "@sixseven/protocol/bridge";
+import type { FrameToPageMessage, PageToFrameMessage, SubtitleStyle } from "@sixseven/protocol/bridge";
+import { DEFAULT_SUBTITLE_STYLE, unwrap, wrap } from "@sixseven/protocol/bridge";
 import type { Intent } from "@sixseven/protocol";
+import { parseSubtitles } from "@sixseven/protocol/subtitles";
 import { type OwnTabParty, PARTYKIT_HOST } from "./config";
 import { PartyWidget } from "./partyWidget";
-import { RoomSocket } from "./roomSocket";
+import { RoomSocket, type SubResult } from "./roomSocket";
+import { SubtitleLayer } from "./subtitleLayer";
 import { VideoHook } from "./videoHook";
 
 const FAIL_GRACE_MS = 15_000;
@@ -28,6 +30,14 @@ export class OwnTabController {
   private socket: RoomSocket;
   private hook = new VideoHook();
   private widget: PartyWidget;
+  // Personal subtitles (SPEC §13), never synced — anchored OVER the site's video
+  // element (not the whole page) via its rect.
+  private subtitles = new SubtitleLayer(
+    () => this.hook.currentTime(),
+    () => this.hook.videoRect(),
+  );
+  private subStyle: SubtitleStyle = { ...DEFAULT_SUBTITLE_STYLE };
+  private subLabel: string | null = null;
   private lastStatus: MemberStatus | null = null;
   private failTimer: ReturnType<typeof setTimeout> | null = null;
   private lastResyncAt = 0;
@@ -48,6 +58,14 @@ export class OwnTabController {
       code: party.code,
       sourceUrl: party.sourceUrl,
       onLeave: () => this.onLeave(),
+      subs: {
+        loadFile: (f) => this.loadSubtitleFile(f),
+        clear: () => this.clearSubtitles(),
+        patchStyle: (p) => this.patchSubStyle(p),
+        search: (q, s, e) => this.searchSubs(q, s, e),
+        loadResult: (r) => this.loadSubResult(r),
+        selectTrack: (id) => this.selectEmbeddedTrack(id),
+      },
     });
 
     this.socket = new RoomSocket(
@@ -81,6 +99,8 @@ export class OwnTabController {
 
   start(): void {
     this.widget.mount();
+    this.subtitles.mount();
+    this.subtitles.setStyle(this.subStyle);
     this.hook.allowLocalControl = true; // native play/pause/seek → room commands
     this.hook.onHookChange = (found) => {
       if (!found) return;
@@ -93,6 +113,8 @@ export class OwnTabController {
     };
     this.hook.onStatus = (state, t, dur) => this.reportStatus(state, t, dur);
     this.hook.onLocalControl = (intent, time) => this.socket.control(intent, time);
+    // Surface the source's own caption tracks to the widget as they appear.
+    this.hook.onTextTracksChanged = () => this.widget.update({ tracks: this.hook.getTextTracks() });
     this.hook.start();
 
     // The real <video> may live in a nested iframe — drive the same frame-tree
@@ -212,6 +234,68 @@ export class OwnTabController {
     this.widget.setHidden(hidden);
   }
 
+  // ── personal subtitles (apply to our layer + broadcast down to nested frames) ─
+
+  async loadSubtitleFile(file: File): Promise<void> {
+    this.hook.disableTextTracks(); // an uploaded sub wins over any embedded track
+    const cues = parseSubtitles(await file.text());
+    this.subLabel = file.name;
+    this.subtitles.setCues(cues);
+    this.broadcastDown({ kind: "setSubtitles", cues });
+    this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle, selectedTrack: null });
+  }
+  clearSubtitles(): void {
+    this.hook.disableTextTracks();
+    this.subLabel = null;
+    this.subtitles.setCues(null);
+    this.broadcastDown({ kind: "setSubtitles", cues: null });
+    this.widget.update({ subLabel: null, selectedTrack: null });
+  }
+  patchSubStyle(patch: Partial<SubtitleStyle>): void {
+    this.subStyle = { ...this.subStyle, ...patch };
+    this.subtitles.setStyle(this.subStyle);
+    this.broadcastDown({ kind: "setSubtitleStyle", style: this.subStyle });
+    this.widget.update({ subStyle: this.subStyle });
+  }
+
+  /** Online search via the member-gated proxy; best-first (most-downloaded). */
+  async searchSubs(query: string, season?: number, episode?: number): Promise<SubResult[]> {
+    const { results } = await this.socket.subsSearch(query, "en", season, episode);
+    return [...results].sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0));
+  }
+  async loadSubResult(r: SubResult): Promise<void> {
+    this.hook.disableTextTracks(); // a chosen online sub wins over any embedded track
+    const { vtt } = await this.socket.subsDownload(r.id);
+    const cues = parseSubtitles(vtt);
+    this.subLabel = `${r.title}${r.release ? ` · ${r.release}` : ""}`;
+    this.subtitles.setCues(cues);
+    this.broadcastDown({ kind: "setSubtitles", cues });
+    this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle, selectedTrack: null });
+  }
+
+  /** Use one of the source's OWN caption tracks — read its cues into our overlay
+   *  (offset/style apply), or fall back to the player's native rendering. */
+  selectEmbeddedTrack(id: string | null): void {
+    if (id === null) {
+      this.clearSubtitles();
+      return;
+    }
+    const label = this.hook.getTextTracks().find((t) => t.id === id)?.label ?? "captions";
+    this.hook.useTextTrack(id, (cues) => {
+      if (cues) {
+        this.subLabel = `site · ${label}`;
+        this.subtitles.setCues(cues);
+        this.broadcastDown({ kind: "setSubtitles", cues });
+      } else {
+        // Cues weren't CORS-readable → the site renders this track itself.
+        this.subLabel = `site · ${label} (native)`;
+        this.subtitles.setCues(null);
+        this.broadcastDown({ kind: "setSubtitles", cues: null });
+      }
+      this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle, selectedTrack: id });
+    });
+  }
+
   /** Live snapshot for the popup (which queries us instead of opening its own
    *  connection — avoids a phantom presence member). */
   getState() {
@@ -232,6 +316,7 @@ export class OwnTabController {
     window.removeEventListener("message", this.onFrameMessage);
     this.socket.destroy();
     this.hook.destroy();
+    this.subtitles.destroy();
     this.widget.destroy();
   }
 }
