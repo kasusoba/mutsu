@@ -62,9 +62,13 @@ export const opensubtitles: SubProvider = {
     const params = new URLSearchParams({
       query: q.query,
       languages: (q.languages ?? "en").toLowerCase(),
+      // Best-first: most-downloaded is the API's strongest quality signal.
+      order_by: "download_count",
+      order_direction: "desc",
     });
     if (q.season != null) params.set("season_number", String(q.season));
     if (q.episode != null) params.set("episode_number", String(q.episode));
+    if (q.season != null || q.episode != null) params.set("type", "episode");
 
     const res = await fetch(`${BASE}/subtitles?${params}`, { headers: headers(env) });
     if (res.status === 429) throw new QuotaError("opensubtitles");

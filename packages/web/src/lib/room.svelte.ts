@@ -136,8 +136,13 @@ export class RoomClient {
     return json;
   }
 
-  subsSearch(query: string, languages = "en"): Promise<{ results: SubResult[] }> {
-    return this.proxy("subs.search", { query, languages });
+  subsSearch(
+    query: string,
+    languages = "en",
+    season?: number,
+    episode?: number,
+  ): Promise<{ results: SubResult[] }> {
+    return this.proxy("subs.search", { query, languages, season, episode });
   }
   subsDownload(id: string): Promise<{ vtt: string }> {
     return this.proxy("subs.download", { id });
