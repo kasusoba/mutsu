@@ -102,7 +102,14 @@
           oninput={(e) => subs.patchStyle({ offsetMs: Math.round(+e.currentTarget.value * 1000) })}
         />
         <button class="step" onclick={() => subs.nudgeOffset(50)}>+</button>
-        <span class="val">{offsetSec}s</span>
+        <input
+          class="numval"
+          type="number"
+          step="0.05"
+          value={offsetSec}
+          oninput={(e) =>
+            subs.patchStyle({ offsetMs: Math.round((+e.currentTarget.value || 0) * 1000) })}
+        /><span class="unit">s</span>
       </div>
 
       <div class="ctl">
@@ -285,5 +292,15 @@
     font-size: 12px;
     min-width: 44px;
     text-align: right;
+  }
+  .numval {
+    width: 64px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    padding: 5px 6px;
+  }
+  .unit {
+    font-size: 12px;
+    color: var(--muted);
   }
 </style>

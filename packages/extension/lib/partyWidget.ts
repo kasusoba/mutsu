@@ -175,8 +175,10 @@ export class PartyWidget {
     if (subStyleRow) (subStyleRow as HTMLElement).hidden = !has;
     const subStyle2 = this.$(".sub-style2");
     if (subStyle2) (subStyle2 as HTMLElement).hidden = !has;
-    const subOff = this.$(".sub-off");
-    if (subOff) subOff.textContent = `${(s.subStyle.offsetMs / 1000).toFixed(2)}s`;
+    const offNumEl = this.$(".sub-off-num") as HTMLInputElement | null;
+    if (offNumEl && this.root?.activeElement !== offNumEl) {
+      offNumEl.value = (s.subStyle.offsetMs / 1000).toFixed(2);
+    }
     const subPos = this.$(".sub-pos");
     if (subPos) subPos.textContent = s.subStyle.position;
     // Reflect the style sliders (only overwrite when not focused, so dragging
@@ -251,6 +253,10 @@ export class PartyWidget {
     const offset = this.$(".sub-offset") as HTMLInputElement | null;
     offset?.addEventListener("input", () =>
       this.opts.subs.patchStyle({ offsetMs: Math.round(+offset.value * 1000) }),
+    );
+    const offNum = this.$(".sub-off-num") as HTMLInputElement | null;
+    offNum?.addEventListener("input", () =>
+      this.opts.subs.patchStyle({ offsetMs: Math.round((+offNum.value || 0) * 1000) }),
     );
     this.$(".sub-pos")?.addEventListener("click", () =>
       this.opts.subs.patchStyle({
@@ -434,7 +440,7 @@ export class PartyWidget {
   .sub-label { font-size:11px; color:#9aa0b4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
   .sub-style { display:flex; align-items:center; gap:6px; }
   .sub-style[hidden], .sub-style2[hidden] { display:none; }
-  .sub-off { font:12px ui-monospace,monospace; min-width:42px; text-align:center; }
+  .sub-off-num { width:56px; font:12px ui-monospace,monospace; text-align:right; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:4px 6px; }
   .sub-clear { margin-left:auto; color:#9aa0b4; }
   .subs button { padding:4px 8px; }
   .sub-style2 { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
@@ -497,7 +503,7 @@ export class PartyWidget {
       <button class="sub-off-dn" title="−0.1s">−</button>
       <input class="sub-offset sub-range" type="range" min="-5" max="5" step="0.05" />
       <button class="sub-off-up" title="+0.1s">+</button>
-      <span class="sub-off">0.00s</span>
+      <input class="sub-off-num" type="number" step="0.05" /><span class="sub-mini">s</span>
     </div>
     <div class="sub-style2" hidden>
       <button class="sub-pos">bottom</button>
