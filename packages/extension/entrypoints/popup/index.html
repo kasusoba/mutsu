@@ -194,6 +194,95 @@
       button.send:hover {
         border-color: var(--accent);
       }
+      /* ── own-tab "watch together" section ── */
+      .section-sep {
+        padding: 8px 12px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .ot-card {
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .ot-row {
+        display: flex;
+        align-items: center;
+      }
+      .ot-title {
+        font-weight: 600;
+      }
+      .ot-code {
+        margin-left: auto;
+        font: 700 14px ui-monospace, monospace;
+        letter-spacing: 1px;
+        color: var(--accent);
+      }
+      .ot-status {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .ot-members {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+      }
+      .ot-members li {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .md {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex: none;
+      }
+      .md.ready { background: var(--good); }
+      .md.stalled { background: var(--warn); }
+      .md.failed { background: var(--bad); }
+      .ot-input {
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 9px;
+        width: 100%;
+      }
+      .ot-btn {
+        font: inherit;
+        font-size: 13px;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 7px 10px;
+        cursor: pointer;
+      }
+      .ot-btn:hover:not(:disabled) { border-color: var(--accent); }
+      .ot-btn:disabled { opacity: 0.5; cursor: default; }
+      .ot-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+      .ot-btn.danger { color: var(--bad); }
+      .ot-actions { display: flex; gap: 6px; }
+      .ot-actions .danger { margin-left: auto; }
+      .ot-or { text-align: center; font-size: 11px; color: var(--muted); }
+      .ot-join { display: flex; gap: 6px; }
+      .ot-join .ot-input { flex: 1; }
+      .ot-join-result { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+      .ot-now b { color: var(--text); }
+      .ot-hint { font-size: 11px; color: var(--muted); }
       #notice {
         padding: 7px 12px;
         font-size: 12px;
@@ -220,6 +309,8 @@
         <button class="rescan" id="rescan" title="Scan this tab again">Rescan</button>
       </span>
     </header>
+    <div id="ownTab"></div>
+    <div class="section-sep">Share to an open room page</div>
     <div class="target" id="targetRow" hidden>
       <label for="room">send to</label>
       <select id="room"></select>

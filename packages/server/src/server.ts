@@ -212,9 +212,18 @@ export default class RoomServer implements Party.Server {
 
     if (msg.type === "join") return this.handleJoin(sender, msg);
 
-    const state = sender.state as { admitted?: boolean } | undefined;
+    const state = sender.state as { admitted?: boolean; observer?: boolean } | undefined;
     if (!state?.admitted) {
       return this.reject(sender, "not_admitted", "send `join` first");
+    }
+    // Observers are read-only: they can refresh their snapshot but never mutate
+    // room state (they aren't even members). Anything else is silently dropped.
+    if (state.observer) {
+      if (msg.type === "resync") {
+        this.send(sender, this.syncMessage(Date.now(), false));
+        this.send(sender, this.gateMessage());
+      }
+      return;
     }
 
     switch (msg.type) {
@@ -293,6 +302,18 @@ export default class RoomServer implements Party.Server {
       return;
     }
 
+    // Observer join (own-tab §11): admit + snapshot the current truth, but stay
+    // OUT of presence — no members entry, no log, never holds the gate. Used by
+    // the own-tab popup to read a room's source before the user is on it.
+    if (msg.observer) {
+      sender.setState({ admitted: true, observer: true });
+      this.send(sender, { type: "welcome", self: sender.id });
+      this.send(sender, this.syncMessage(Date.now(), false));
+      this.send(sender, this.membersMessage());
+      this.send(sender, this.gateMessage());
+      return;
+    }
+
     // Clear out any dead peers first (e.g. a tab that closed without a clean
     // disconnect) so presence reflects who's actually here.
     this.pruneGhosts();
@@ -336,7 +357,7 @@ export default class RoomServer implements Party.Server {
 
     const now = Date.now();
     this.s.src = src;
-    this.s.srcKind = kind === "direct" ? "direct" : "embed";
+    this.s.srcKind = kind === "direct" || kind === "site" ? kind : "embed";
     this.s.intent = "paused";
     this.s.time = 0;
     this.s.rate = 1;

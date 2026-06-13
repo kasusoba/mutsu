@@ -21,6 +21,7 @@ import {
   rankCandidates,
 } from "../../lib/picker";
 import { icon } from "./icons";
+import { initOwnTab } from "./ownTab";
 
 interface RoomTab {
   tabId: number;
@@ -235,6 +236,8 @@ async function refresh(): Promise<void> {
 rescanBtn.addEventListener("click", refresh);
 
 async function main(): Promise<void> {
+  // The own-tab "watch together" section runs independently of the room picker.
+  initOwnTab().catch((e) => console.warn("[sixseven] own-tab init failed", e));
   await refresh();
   // Players (and room pages) often mount their <video>/attribute asynchronously,
   // after the popup's first scan. If we came up empty, retry once shortly — this

@@ -26,6 +26,9 @@ importers:
       '@sixseven/protocol':
         specifier: workspace:*
         version: link:../protocol
+      partysocket:
+        specifier: ^1.0.3
+        version: 1.1.19
     devDependencies:
       typescript:
         specifier: ^5.7.2
