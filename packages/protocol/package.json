@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./bridge": "./src/bridge.ts",
-    "./picker": "./src/picker.ts"
+    "./picker": "./src/picker.ts",
+    "./subtitles": "./src/subtitles.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

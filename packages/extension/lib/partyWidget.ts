@@ -10,6 +10,7 @@
  */
 
 import type { GateMessage, LogEvent, Member, MemberId, MemberStatus } from "@sixseven/protocol";
+import { DEFAULT_SUBTITLE_STYLE, type SubtitleStyle } from "@sixseven/protocol/bridge";
 import { browser } from "wxt/browser";
 
 interface WidgetState {
@@ -19,12 +20,20 @@ interface WidgetState {
   selfId: MemberId | null;
   log: LogEvent[];
   playerStatus: MemberStatus;
+  subLabel: string | null;
+  subStyle: SubtitleStyle;
 }
 
 interface WidgetOpts {
   code: string;
   sourceUrl: string;
   onLeave: () => void;
+  /** Personal subtitle controls — owned by the controller. */
+  subs: {
+    loadFile: (file: File) => void;
+    clear: () => void;
+    patchStyle: (patch: Partial<SubtitleStyle>) => void;
+  };
 }
 
 const POS_KEY = "sixseven:widgetPos";
@@ -50,6 +59,8 @@ export class PartyWidget {
     selfId: null,
     log: [],
     playerStatus: "loading",
+    subLabel: null,
+    subStyle: { ...DEFAULT_SUBTITLE_STYLE },
   };
 
   constructor(private readonly opts: WidgetOpts) {}
@@ -126,6 +137,15 @@ export class PartyWidget {
         .map((e) => `<li>${esc(describe(e, s.members))}</li>`)
         .join("");
     }
+
+    const subLabel = this.$(".sub-label");
+    if (subLabel) subLabel.textContent = s.subLabel ?? "no subtitles";
+    const subStyleRow = this.$(".sub-style");
+    if (subStyleRow) (subStyleRow as HTMLElement).hidden = !s.subLabel;
+    const subOff = this.$(".sub-off");
+    if (subOff) subOff.textContent = `${(s.subStyle.offsetMs / 1000).toFixed(1)}s`;
+    const subPos = this.$(".sub-pos");
+    if (subPos) subPos.textContent = s.subStyle.position;
   }
 
   private statusText(): string {
@@ -168,6 +188,27 @@ export class PartyWidget {
       this.setHidden(true);
     });
     this.$(".leave")?.addEventListener("click", () => this.opts.onLeave());
+
+    // Subtitles (personal): file upload + offset/position.
+    const fileInput = this.$(".sub-file") as HTMLInputElement | null;
+    this.$(".sub-upload")?.addEventListener("click", () => fileInput?.click());
+    fileInput?.addEventListener("change", () => {
+      const f = fileInput.files?.[0];
+      if (f) this.opts.subs.loadFile(f);
+      fileInput.value = "";
+    });
+    this.$(".sub-off-dn")?.addEventListener("click", () =>
+      this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs - 250 }),
+    );
+    this.$(".sub-off-up")?.addEventListener("click", () =>
+      this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs + 250 }),
+    );
+    this.$(".sub-pos")?.addEventListener("click", () =>
+      this.opts.subs.patchStyle({
+        position: this.state.subStyle.position === "bottom" ? "top" : "bottom",
+      }),
+    );
+    this.$(".sub-clear")?.addEventListener("click", () => this.opts.subs.clear());
   }
 
   private onDown = (e: PointerEvent): void => {
@@ -248,8 +289,8 @@ export class PartyWidget {
   .bdot { position:absolute; bottom: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #171922; }
   .panel {
     display: none; flex-direction: column; gap: 0; position: absolute; bottom: 0; right: 60px;
-    width: 280px; max-height: 60vh; background: #171922; color: #e7e9ef;
-    border: 1px solid #2a2e3d; border-radius: 14px; overflow: hidden;
+    width: 280px; max-height: 70vh; background: #171922; color: #e7e9ef;
+    border: 1px solid #2a2e3d; border-radius: 14px; overflow-y: auto;
     box-shadow: 0 16px 48px rgba(0,0,0,.55);
   }
   .head { display:flex; align-items:center; gap:8px; padding: 10px 12px; border-bottom: 1px solid #2a2e3d; }
@@ -266,8 +307,16 @@ export class PartyWidget {
   .mname{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .you{color:#9aa0b4;}
   .mstat{font-size:11px; color:#9aa0b4;}
-  .log { max-height: 140px; overflow:auto; }
+  .log { max-height: 110px; overflow:auto; }
   .log li { font-size:12px; color:#c7cad6; }
+  .subs { padding: 0 12px 8px; display:flex; flex-direction:column; gap:6px; }
+  .sub-row { display:flex; align-items:center; gap:8px; }
+  .sub-label { font-size:11px; color:#9aa0b4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .sub-style { display:flex; align-items:center; gap:6px; }
+  .sub-style[hidden] { display:none; }
+  .sub-off { font:12px ui-monospace,monospace; min-width:42px; text-align:center; }
+  .sub-clear { margin-left:auto; color:#9aa0b4; }
+  .subs button { padding:4px 8px; }
   .foot { display:flex; gap:8px; padding:10px 12px; border-top:1px solid #2a2e3d; }
   button { font:inherit; font-size:12px; cursor:pointer; border-radius:8px; padding:6px 10px; border:1px solid #2a2e3d; background:#1f2230; color:#e7e9ef; }
   button:hover { border-color:#6c7cff; }
@@ -286,6 +335,21 @@ export class PartyWidget {
   <ul class="members"></ul>
   <div class="section-title">Activity</div>
   <ul class="log"></ul>
+  <div class="section-title">Subtitles</div>
+  <div class="subs">
+    <div class="sub-row">
+      <button class="sub-upload">Upload .srt / .vtt</button>
+      <span class="sub-label">no subtitles</span>
+    </div>
+    <div class="sub-style" hidden>
+      <button class="sub-off-dn" title="Show earlier">−</button>
+      <span class="sub-off">0.0s</span>
+      <button class="sub-off-up" title="Show later">+</button>
+      <button class="sub-pos">bottom</button>
+      <button class="sub-clear">clear</button>
+    </div>
+    <input class="sub-file" type="file" accept=".srt,.vtt" hidden />
+  </div>
   <div class="foot">
     <button class="hide" title="Hide the widget (controls stay in the popup)">Hide</button>
     <button class="copy">Copy code</button>

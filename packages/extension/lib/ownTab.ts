@@ -14,12 +14,14 @@
  */
 
 import type { MemberStatus, SyncMessage } from "@sixseven/protocol";
-import type { FrameToPageMessage, PageToFrameMessage } from "@sixseven/protocol/bridge";
-import { unwrap, wrap } from "@sixseven/protocol/bridge";
+import type { FrameToPageMessage, PageToFrameMessage, SubtitleStyle } from "@sixseven/protocol/bridge";
+import { DEFAULT_SUBTITLE_STYLE, unwrap, wrap } from "@sixseven/protocol/bridge";
 import type { Intent } from "@sixseven/protocol";
+import { parseSubtitles } from "@sixseven/protocol/subtitles";
 import { type OwnTabParty, PARTYKIT_HOST } from "./config";
 import { PartyWidget } from "./partyWidget";
 import { RoomSocket } from "./roomSocket";
+import { SubtitleLayer } from "./subtitleLayer";
 import { VideoHook } from "./videoHook";
 
 const FAIL_GRACE_MS = 15_000;
@@ -28,6 +30,10 @@ export class OwnTabController {
   private socket: RoomSocket;
   private hook = new VideoHook();
   private widget: PartyWidget;
+  // Personal subtitles (SPEC §13), never synced — rendered over the site video.
+  private subtitles = new SubtitleLayer(() => this.hook.currentTime());
+  private subStyle: SubtitleStyle = { ...DEFAULT_SUBTITLE_STYLE };
+  private subLabel: string | null = null;
   private lastStatus: MemberStatus | null = null;
   private failTimer: ReturnType<typeof setTimeout> | null = null;
   private lastResyncAt = 0;
@@ -48,6 +54,11 @@ export class OwnTabController {
       code: party.code,
       sourceUrl: party.sourceUrl,
       onLeave: () => this.onLeave(),
+      subs: {
+        loadFile: (f) => this.loadSubtitleFile(f),
+        clear: () => this.clearSubtitles(),
+        patchStyle: (p) => this.patchSubStyle(p),
+      },
     });
 
     this.socket = new RoomSocket(
@@ -81,6 +92,8 @@ export class OwnTabController {
 
   start(): void {
     this.widget.mount();
+    this.subtitles.mount();
+    this.subtitles.setStyle(this.subStyle);
     this.hook.allowLocalControl = true; // native play/pause/seek → room commands
     this.hook.onHookChange = (found) => {
       if (!found) return;
@@ -212,6 +225,28 @@ export class OwnTabController {
     this.widget.setHidden(hidden);
   }
 
+  // ── personal subtitles (apply to our layer + broadcast down to nested frames) ─
+
+  async loadSubtitleFile(file: File): Promise<void> {
+    const cues = parseSubtitles(await file.text());
+    this.subLabel = file.name;
+    this.subtitles.setCues(cues);
+    this.broadcastDown({ kind: "setSubtitles", cues });
+    this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle });
+  }
+  clearSubtitles(): void {
+    this.subLabel = null;
+    this.subtitles.setCues(null);
+    this.broadcastDown({ kind: "setSubtitles", cues: null });
+    this.widget.update({ subLabel: null });
+  }
+  patchSubStyle(patch: Partial<SubtitleStyle>): void {
+    this.subStyle = { ...this.subStyle, ...patch };
+    this.subtitles.setStyle(this.subStyle);
+    this.broadcastDown({ kind: "setSubtitleStyle", style: this.subStyle });
+    this.widget.update({ subStyle: this.subStyle });
+  }
+
   /** Live snapshot for the popup (which queries us instead of opening its own
    *  connection — avoids a phantom presence member). */
   getState() {
@@ -232,6 +267,7 @@ export class OwnTabController {
     window.removeEventListener("message", this.onFrameMessage);
     this.socket.destroy();
     this.hook.destroy();
+    this.subtitles.destroy();
     this.widget.destroy();
   }
 }
