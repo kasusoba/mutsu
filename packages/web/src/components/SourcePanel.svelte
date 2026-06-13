@@ -16,6 +16,21 @@
   const currentSrc = $derived(room.sync?.src ?? null);
   const currentKind = $derived(room.sync?.srcKind ?? "embed");
 
+  const KIND_LABEL: Record<string, string> = {
+    embed: "Embedded page",
+    direct: "Direct video / HLS",
+    youtube: "YouTube",
+    site: "Own-tab site",
+  };
+  // Live feedback: what the pasted URL will load as (before committing).
+  const detected = $derived.by(() => {
+    const raw = srcInput.trim();
+    if (!raw) return null;
+    const { url } = extractSourceUrl(raw);
+    return url ? classifySource(url) : null;
+  });
+  const effectiveKind = $derived(srcMode === "auto" ? detected : srcMode);
+
   function setSource() {
     const { url, error } = extractSourceUrl(srcInput);
     if (error || !url) {
@@ -44,10 +59,10 @@
 
 <div class="panel">
   <label class="field">
-    <span class="lbl">Paste an embed page, or an HLS / .mp4 URL</span>
+    <span class="lbl">Paste a YouTube link, an embed page, or a video / HLS URL</span>
     <input
       bind:value={srcInput}
-      placeholder="https://…"
+      placeholder="https://… (YouTube, embed page, or .m3u8 / .mp4)"
       disabled={!room.canControl}
       onkeydown={(e) => e.key === "Enter" && setSource()}
     />
@@ -63,11 +78,14 @@
       Set source
     </button>
   </div>
+  {#if effectiveKind}
+    <p class="detect">Will load as <strong>{KIND_LABEL[effectiveKind]}</strong></p>
+  {/if}
   {#if srcError}<p class="err">{srcError}</p>{/if}
 
   {#if currentSrc}
     <div class="current">
-      <span class="lbl">Now playing · {currentKind}</span>
+      <span class="lbl">Now playing · {KIND_LABEL[currentKind] ?? currentKind}</span>
       <input class="url" value={currentSrc} readonly title={currentSrc} />
       <div class="row">
         <button onclick={copySrc} title="Copy the current source URL">
@@ -128,6 +146,14 @@
   .url {
     font-size: 12px;
     color: var(--muted);
+  }
+  .detect {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .detect strong {
+    color: var(--text);
   }
   .err {
     margin: 0;
