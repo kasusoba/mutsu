@@ -140,7 +140,51 @@ export class RoomSocket {
     this.send({ type: "resync" });
   }
 
+  // ── subtitle proxy (SPEC §13) — member-gated by the room secret ─────────────
+  // In own-tab mode the code IS the secret, so the same proxy the room page uses
+  // is reachable here. It serves subtitle TEXT only — never video bytes (§2).
+
+  private httpBase(): string {
+    return `https://${this.opts.host}/parties/main/${this.opts.room}`;
+  }
+
+  private async proxy<T>(op: string, payload: Record<string, unknown>): Promise<T> {
+    const res = await fetch(this.httpBase(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-sixseven-secret": this.opts.secret ?? "" },
+      body: JSON.stringify({ op, ...payload }),
+    });
+    const json = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+    if (!res.ok || !json) {
+      const code = json?.error ?? `http ${res.status}`;
+      throw new Error(code === "quota" ? "Daily subtitle limit reached — try later." : code);
+    }
+    return json;
+  }
+
+  subsSearch(
+    query: string,
+    languages = "en",
+    season?: number,
+    episode?: number,
+  ): Promise<{ results: SubResult[] }> {
+    return this.proxy("subs.search", { query, languages, season, episode });
+  }
+  subsDownload(id: string): Promise<{ vtt: string }> {
+    return this.proxy("subs.download", { id });
+  }
+
   destroy(): void {
     this.socket.close();
   }
+}
+
+/** A subtitle search hit from the proxy (mirrors the server's normalized shape). */
+export interface SubResult {
+  id: string;
+  provider: string;
+  title: string;
+  language: string;
+  release?: string;
+  downloads?: number;
 }

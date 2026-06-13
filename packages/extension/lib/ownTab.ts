@@ -20,7 +20,7 @@ import type { Intent } from "@sixseven/protocol";
 import { parseSubtitles } from "@sixseven/protocol/subtitles";
 import { type OwnTabParty, PARTYKIT_HOST } from "./config";
 import { PartyWidget } from "./partyWidget";
-import { RoomSocket } from "./roomSocket";
+import { RoomSocket, type SubResult } from "./roomSocket";
 import { SubtitleLayer } from "./subtitleLayer";
 import { VideoHook } from "./videoHook";
 
@@ -58,6 +58,8 @@ export class OwnTabController {
         loadFile: (f) => this.loadSubtitleFile(f),
         clear: () => this.clearSubtitles(),
         patchStyle: (p) => this.patchSubStyle(p),
+        search: (q, s, e) => this.searchSubs(q, s, e),
+        loadResult: (r) => this.loadSubResult(r),
       },
     });
 
@@ -245,6 +247,20 @@ export class OwnTabController {
     this.subtitles.setStyle(this.subStyle);
     this.broadcastDown({ kind: "setSubtitleStyle", style: this.subStyle });
     this.widget.update({ subStyle: this.subStyle });
+  }
+
+  /** Online search via the member-gated proxy; best-first (most-downloaded). */
+  async searchSubs(query: string, season?: number, episode?: number): Promise<SubResult[]> {
+    const { results } = await this.socket.subsSearch(query, "en", season, episode);
+    return [...results].sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0));
+  }
+  async loadSubResult(r: SubResult): Promise<void> {
+    const { vtt } = await this.socket.subsDownload(r.id);
+    const cues = parseSubtitles(vtt);
+    this.subLabel = `${r.title}${r.release ? ` · ${r.release}` : ""}`;
+    this.subtitles.setCues(cues);
+    this.broadcastDown({ kind: "setSubtitles", cues });
+    this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle });
   }
 
   /** Live snapshot for the popup (which queries us instead of opening its own

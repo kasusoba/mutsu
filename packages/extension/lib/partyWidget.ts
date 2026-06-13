@@ -12,6 +12,7 @@
 import type { GateMessage, LogEvent, Member, MemberId, MemberStatus } from "@sixseven/protocol";
 import { DEFAULT_SUBTITLE_STYLE, type SubtitleStyle } from "@sixseven/protocol/bridge";
 import { browser } from "wxt/browser";
+import type { SubResult } from "./roomSocket";
 
 interface WidgetState {
   connected: boolean;
@@ -33,6 +34,8 @@ interface WidgetOpts {
     loadFile: (file: File) => void;
     clear: () => void;
     patchStyle: (patch: Partial<SubtitleStyle>) => void;
+    search: (query: string, season?: number, episode?: number) => Promise<SubResult[]>;
+    loadResult: (r: SubResult) => Promise<void>;
   };
 }
 
@@ -237,6 +240,56 @@ export class PartyWidget {
     color?.addEventListener("input", () => this.opts.subs.patchStyle({ color: color.value }));
     const box = this.$(".sub-box") as HTMLInputElement | null;
     box?.addEventListener("input", () => this.opts.subs.patchStyle({ background: +box.value }));
+
+    // Online subtitle search (member-gated proxy via the controller).
+    const q = this.$(".sub-q") as HTMLInputElement | null;
+    const seasonEl = this.$(".sub-season") as HTMLInputElement | null;
+    const epEl = this.$(".sub-ep") as HTMLInputElement | null;
+    const results = this.$(".sub-results");
+    this.$(".sub-se-toggle")?.addEventListener("click", () => {
+      const se = this.$(".sub-se");
+      if (se) (se as HTMLElement).hidden = !(se as HTMLElement).hidden;
+      this.$(".sub-se-toggle")?.classList.toggle("on");
+    });
+    const doSearch = async () => {
+      const query = q?.value.trim();
+      if (!query || !results) return;
+      results.textContent = "Searching…";
+      try {
+        const hits = await this.opts.subs.search(
+          query,
+          seasonEl?.value ? +seasonEl.value : undefined,
+          epEl?.value ? +epEl.value : undefined,
+        );
+        if (!hits.length) {
+          results.textContent = "No subtitles found — try the exact title.";
+          return;
+        }
+        results.replaceChildren();
+        for (const r of hits.slice(0, 12)) {
+          const b = document.createElement("button");
+          b.className = "sub-result";
+          const dl = r.downloads ? ` · ↓${r.downloads.toLocaleString()}` : "";
+          b.innerHTML = `<span class="sr-title">${esc(r.release ?? r.title)}</span><span class="sr-meta">${esc(r.language)}${dl} · ${esc(r.provider)}</span>`;
+          b.addEventListener("click", async () => {
+            results.textContent = "Loading…";
+            try {
+              await this.opts.subs.loadResult(r);
+              results.replaceChildren();
+            } catch (e) {
+              results.textContent = (e as Error).message;
+            }
+          });
+          results.append(b);
+        }
+      } catch (e) {
+        results.textContent = (e as Error).message;
+      }
+    };
+    this.$(".sub-go")?.addEventListener("click", doSearch);
+    q?.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter") doSearch();
+    });
   }
 
   private onDown = (e: PointerEvent): void => {
@@ -349,6 +402,17 @@ export class PartyWidget {
   .sub-mini { font-size:11px; color:#9aa0b4; }
   .sub-range { flex:1; min-width:54px; accent-color:#6c7cff; }
   .sub-color { width:28px; height:24px; padding:0; border:1px solid #2a2e3d; background:none; border-radius:6px; cursor:pointer; }
+  .sub-search { display:flex; gap:6px; }
+  .sub-se { display:flex; gap:6px; }
+  .sub-se[hidden] { display:none; }
+  .sub-q, .sub-se input { font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; }
+  .sub-q { flex:1; min-width:0; }
+  .sub-se input { flex:1; min-width:0; }
+  .sub-se-toggle.on { border-color:#6c7cff; color:#6c7cff; }
+  .sub-results { display:flex; flex-direction:column; gap:4px; max-height:150px; overflow:auto; font-size:12px; color:#9aa0b4; }
+  .sub-result { width:100%; text-align:left; display:flex; flex-direction:column; gap:2px; padding:5px 8px; }
+  .sr-title { color:#e7e9ef; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sr-meta { font-size:10px; color:#9aa0b4; }
   .foot { display:flex; gap:8px; padding:10px 12px; border-top:1px solid #2a2e3d; }
   button { font:inherit; font-size:12px; cursor:pointer; border-radius:8px; padding:6px 10px; border:1px solid #2a2e3d; background:#1f2230; color:#e7e9ef; }
   button:hover { border-color:#6c7cff; }
@@ -373,6 +437,16 @@ export class PartyWidget {
       <button class="sub-upload">Upload .srt / .vtt</button>
       <span class="sub-label">no subtitles</span>
     </div>
+    <div class="sub-search">
+      <input class="sub-q" type="text" placeholder="search online — title" />
+      <button class="sub-se-toggle" title="TV show?">S/E</button>
+      <button class="sub-go">Search</button>
+    </div>
+    <div class="sub-se" hidden>
+      <input class="sub-season" type="number" min="1" placeholder="season" />
+      <input class="sub-ep" type="number" min="1" placeholder="episode" />
+    </div>
+    <div class="sub-results"></div>
     <div class="sub-style" hidden>
       <span class="sub-mini">offset</span>
       <button class="sub-off-dn" title="−0.1s">−</button>
