@@ -146,7 +146,7 @@ export class PartyWidget {
     const subStyle2 = this.$(".sub-style2");
     if (subStyle2) (subStyle2 as HTMLElement).hidden = !has;
     const subOff = this.$(".sub-off");
-    if (subOff) subOff.textContent = `${(s.subStyle.offsetMs / 1000).toFixed(1)}s`;
+    if (subOff) subOff.textContent = `${(s.subStyle.offsetMs / 1000).toFixed(2)}s`;
     const subPos = this.$(".sub-pos");
     if (subPos) subPos.textContent = s.subStyle.position;
     // Reflect the style sliders (only overwrite when not focused, so dragging
@@ -155,6 +155,7 @@ export class PartyWidget {
       const el = this.$(sel) as HTMLInputElement | null;
       if (el && this.root?.activeElement !== el) el.value = String(v);
     };
+    setRange(".sub-offset", s.subStyle.offsetMs / 1000);
     setRange(".sub-size", s.subStyle.sizePct);
     setRange(".sub-dist", s.subStyle.marginPct);
     setRange(".sub-box", s.subStyle.background);
@@ -212,10 +213,14 @@ export class PartyWidget {
       fileInput.value = "";
     });
     this.$(".sub-off-dn")?.addEventListener("click", () =>
-      this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs - 250 }),
+      this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs - 100 }),
     );
     this.$(".sub-off-up")?.addEventListener("click", () =>
-      this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs + 250 }),
+      this.opts.subs.patchStyle({ offsetMs: this.state.subStyle.offsetMs + 100 }),
+    );
+    const offset = this.$(".sub-offset") as HTMLInputElement | null;
+    offset?.addEventListener("input", () =>
+      this.opts.subs.patchStyle({ offsetMs: Math.round(+offset.value * 1000) }),
     );
     this.$(".sub-pos")?.addEventListener("click", () =>
       this.opts.subs.patchStyle({
@@ -369,13 +374,14 @@ export class PartyWidget {
       <span class="sub-label">no subtitles</span>
     </div>
     <div class="sub-style" hidden>
-      <button class="sub-off-dn" title="Show earlier">−</button>
-      <span class="sub-off">0.0s</span>
-      <button class="sub-off-up" title="Show later">+</button>
-      <button class="sub-pos">bottom</button>
-      <button class="sub-clear">clear</button>
+      <span class="sub-mini">offset</span>
+      <button class="sub-off-dn" title="−0.1s">−</button>
+      <input class="sub-offset sub-range" type="range" min="-5" max="5" step="0.05" />
+      <button class="sub-off-up" title="+0.1s">+</button>
+      <span class="sub-off">0.00s</span>
     </div>
     <div class="sub-style2" hidden>
+      <button class="sub-pos">bottom</button>
       <span class="sub-mini">size</span>
       <input class="sub-size sub-range" type="range" min="60" max="220" step="5" />
       <span class="sub-mini">dist</span>
@@ -383,6 +389,7 @@ export class PartyWidget {
       <input class="sub-color" type="color" title="Text colour" />
       <span class="sub-mini">box</span>
       <input class="sub-box sub-range" type="range" min="0" max="1" step="0.1" />
+      <button class="sub-clear">clear</button>
     </div>
     <input class="sub-file" type="file" accept=".srt,.vtt" hidden />
   </div>
