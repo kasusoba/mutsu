@@ -3,6 +3,7 @@
   import { Crown, Users } from "lucide-svelte";
   import { untrack } from "svelte";
   import { makeRoomName, slugifyRoom } from "../lib/session";
+  import ExtensionNotice from "./ExtensionNotice.svelte";
 
   interface Props {
     initialNick: string;
@@ -64,6 +65,7 @@
 
     <button type="submit" class="create" disabled={!ready}>Create room</button>
     <p class="hint">A private link with a secret key is generated — share it to invite people.</p>
+    <ExtensionNotice />
   </form>
 </div>
 
