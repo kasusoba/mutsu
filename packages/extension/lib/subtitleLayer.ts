@@ -96,7 +96,10 @@ export class SubtitleLayer {
 
   setCues(cues: SubtitleCue[] | null): void {
     this.cues = cues ?? [];
-    this.lastText = "";
+    // NB: don't reset lastText here — render()'s setText() dedupes against it, so
+    // zeroing it would make a clear (new text "" === lastText "") skip the DOM
+    // update and leave the last cue stuck on screen. Leaving lastText as the
+    // showing text lets the next render detect the change to "" and clear it.
     this.cueCalls++;
   }
 

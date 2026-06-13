@@ -140,12 +140,26 @@ export class PartyWidget {
 
     const subLabel = this.$(".sub-label");
     if (subLabel) subLabel.textContent = s.subLabel ?? "no subtitles";
+    const has = Boolean(s.subLabel);
     const subStyleRow = this.$(".sub-style");
-    if (subStyleRow) (subStyleRow as HTMLElement).hidden = !s.subLabel;
+    if (subStyleRow) (subStyleRow as HTMLElement).hidden = !has;
+    const subStyle2 = this.$(".sub-style2");
+    if (subStyle2) (subStyle2 as HTMLElement).hidden = !has;
     const subOff = this.$(".sub-off");
     if (subOff) subOff.textContent = `${(s.subStyle.offsetMs / 1000).toFixed(1)}s`;
     const subPos = this.$(".sub-pos");
     if (subPos) subPos.textContent = s.subStyle.position;
+    // Reflect the style sliders (only overwrite when not focused, so dragging
+    // one doesn't fight the re-render).
+    const setRange = (sel: string, v: number) => {
+      const el = this.$(sel) as HTMLInputElement | null;
+      if (el && this.root?.activeElement !== el) el.value = String(v);
+    };
+    setRange(".sub-size", s.subStyle.sizePct);
+    setRange(".sub-dist", s.subStyle.marginPct);
+    setRange(".sub-box", s.subStyle.background);
+    const color = this.$(".sub-color") as HTMLInputElement | null;
+    if (color && this.root?.activeElement !== color) color.value = s.subStyle.color;
   }
 
   private statusText(): string {
@@ -209,6 +223,15 @@ export class PartyWidget {
       }),
     );
     this.$(".sub-clear")?.addEventListener("click", () => this.opts.subs.clear());
+
+    const size = this.$(".sub-size") as HTMLInputElement | null;
+    size?.addEventListener("input", () => this.opts.subs.patchStyle({ sizePct: +size.value }));
+    const dist = this.$(".sub-dist") as HTMLInputElement | null;
+    dist?.addEventListener("input", () => this.opts.subs.patchStyle({ marginPct: +dist.value }));
+    const color = this.$(".sub-color") as HTMLInputElement | null;
+    color?.addEventListener("input", () => this.opts.subs.patchStyle({ color: color.value }));
+    const box = this.$(".sub-box") as HTMLInputElement | null;
+    box?.addEventListener("input", () => this.opts.subs.patchStyle({ background: +box.value }));
   }
 
   private onDown = (e: PointerEvent): void => {
@@ -313,10 +336,14 @@ export class PartyWidget {
   .sub-row { display:flex; align-items:center; gap:8px; }
   .sub-label { font-size:11px; color:#9aa0b4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
   .sub-style { display:flex; align-items:center; gap:6px; }
-  .sub-style[hidden] { display:none; }
+  .sub-style[hidden], .sub-style2[hidden] { display:none; }
   .sub-off { font:12px ui-monospace,monospace; min-width:42px; text-align:center; }
   .sub-clear { margin-left:auto; color:#9aa0b4; }
   .subs button { padding:4px 8px; }
+  .sub-style2 { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .sub-mini { font-size:11px; color:#9aa0b4; }
+  .sub-range { flex:1; min-width:54px; accent-color:#6c7cff; }
+  .sub-color { width:28px; height:24px; padding:0; border:1px solid #2a2e3d; background:none; border-radius:6px; cursor:pointer; }
   .foot { display:flex; gap:8px; padding:10px 12px; border-top:1px solid #2a2e3d; }
   button { font:inherit; font-size:12px; cursor:pointer; border-radius:8px; padding:6px 10px; border:1px solid #2a2e3d; background:#1f2230; color:#e7e9ef; }
   button:hover { border-color:#6c7cff; }
@@ -347,6 +374,15 @@ export class PartyWidget {
       <button class="sub-off-up" title="Show later">+</button>
       <button class="sub-pos">bottom</button>
       <button class="sub-clear">clear</button>
+    </div>
+    <div class="sub-style2" hidden>
+      <span class="sub-mini">size</span>
+      <input class="sub-size sub-range" type="range" min="60" max="220" step="5" />
+      <span class="sub-mini">dist</span>
+      <input class="sub-dist sub-range" type="range" min="0" max="40" step="1" />
+      <input class="sub-color" type="color" title="Text colour" />
+      <span class="sub-mini">box</span>
+      <input class="sub-box sub-range" type="range" min="0" max="1" step="0.1" />
     </div>
     <input class="sub-file" type="file" accept=".srt,.vtt" hidden />
   </div>
