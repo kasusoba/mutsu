@@ -159,6 +159,39 @@ export interface SayMessage {
   text: string;
 }
 
+/** One queued source in the playlist (§16). */
+export interface SourceItem {
+  id: string;
+  src: string;
+  kind: SourceKind;
+  title?: string;
+}
+
+/** Playlist mutations (control-mode gated). */
+export interface QueueAddMessage {
+  type: "queueAdd";
+  src: string;
+  kind?: SourceKind;
+  title?: string;
+}
+export interface QueueRemoveMessage {
+  type: "queueRemove";
+  id: string;
+}
+export interface QueueClearMessage {
+  type: "queueClear";
+}
+export interface PlayItemMessage {
+  type: "playItem";
+  id: string;
+}
+/** Advance to the next queued item. `afterId` = the item the sender thinks just
+ *  ended, so the server ignores duplicate advances from multiple clients. */
+export interface PlayNextMessage {
+  type: "playNext";
+  afterId?: string | null;
+}
+
 export type ClientMessage =
   | JoinMessage
   | SetSourceMessage
@@ -168,7 +201,12 @@ export type ClientMessage =
   | StatusMessage
   | SkipMessage
   | ResyncMessage
-  | SayMessage;
+  | SayMessage
+  | QueueAddMessage
+  | QueueRemoveMessage
+  | QueueClearMessage
+  | PlayItemMessage
+  | PlayNextMessage;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Server → client
@@ -246,6 +284,13 @@ export interface EventMessage {
   at: number;
 }
 
+/** The room's playlist + which item is playing (§16). Broadcast on change + join. */
+export interface PlaylistMessage {
+  type: "playlist";
+  items: SourceItem[];
+  currentId: string | null;
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | SyncMessage
@@ -253,7 +298,8 @@ export type ServerMessage =
   | LogMessage
   | GateMessage
   | ErrorMessage
-  | EventMessage;
+  | EventMessage
+  | PlaylistMessage;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Helpers

@@ -30,6 +30,8 @@ export class WebPlayer {
   onStatus: (state: MemberStatus, currentTime: number, duration: number) => void = () => {};
   /** Fired whenever apply() hard-seeks the video (for the debug HUD). */
   onSeek: (from: number, to: number) => void = () => {};
+  /** Fired when the video reaches its end (drives playlist auto-advance, §16). */
+  onEnded: () => void = () => {};
   /** True when this viewer is alone: don't force realtime, just let it play. */
   solo = false;
 
@@ -54,6 +56,7 @@ export class WebPlayer {
     on("canplay", () => this.recover());
     on("loadeddata", () => this.recover());
     on("seeked", () => this.recover());
+    on("ended", () => this.onEnded());
     on("error", () => {
       this.state = "failed";
       this.emit();

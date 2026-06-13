@@ -73,6 +73,8 @@ export class YtPlayer {
   onUserControl: (intent: Intent, time: number) => void = () => {};
   /** Mute state changed (drives the "tap to unmute" hint). */
   onMutedChange: (muted: boolean) => void = () => {};
+  /** Video ended → playlist auto-advance (§16). */
+  onEnded: () => void = () => {};
   solo = false;
 
   private state: MemberStatus = "loading";
@@ -103,6 +105,7 @@ export class YtPlayer {
 
   /** Map a YT state change to readiness + report genuine user play/pause. */
   onYtState(s: number): void {
+    if (s === 0) this.onEnded(); // ENDED → auto-advance
     if (s === 3) {
       // Buffering: gate the room only if it PERSISTS while we should be playing
       // and it isn't the buffering our own seek/play just caused (debounced).

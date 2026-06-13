@@ -31,16 +31,33 @@
   });
   const effectiveKind = $derived(srcMode === "auto" ? detected : srcMode);
 
-  function setSource() {
+  function resolve(): { url: string; kind: SourceKind } | null {
     const { url, error } = extractSourceUrl(srcInput);
     if (error || !url) {
       srcError = error ?? "Invalid source.";
-      return;
+      return null;
     }
     srcError = null;
-    const kind: SourceKind = srcMode === "auto" ? classifySource(url) : srcMode;
-    room.setSource(url, kind);
+    return { url, kind: srcMode === "auto" ? classifySource(url) : srcMode };
+  }
+  function setSource() {
+    const r = resolve();
+    if (!r) return;
+    room.setSource(r.url, r.kind);
     srcInput = "";
+  }
+  function addToQueue() {
+    const r = resolve();
+    if (!r) return;
+    room.queueAdd(r.url, r.kind);
+    srcInput = "";
+  }
+  function host(u: string): string {
+    try {
+      return new URL(u).host;
+    } catch {
+      return u;
+    }
   }
   async function copySrc() {
     if (!currentSrc) return;
@@ -77,11 +94,33 @@
     <button class="primary" onclick={setSource} disabled={!room.canControl || !srcInput.trim()}>
       Set source
     </button>
+    <button onclick={addToQueue} disabled={!room.canControl || !srcInput.trim()} title="Add to the queue">
+      + Queue
+    </button>
   </div>
   {#if effectiveKind}
     <p class="detect">Will load as <strong>{KIND_LABEL[effectiveKind]}</strong></p>
   {/if}
   {#if srcError}<p class="err">{srcError}</p>{/if}
+
+  {#if room.playlist.length}
+    <div class="queue">
+      <div class="q-head">
+        <span class="lbl">Up next · {room.playlist.length}</span>
+        <button class="link" onclick={() => room.queueClear()} disabled={!room.canControl}>clear</button>
+      </div>
+      <ul>
+        {#each room.playlist as it (it.id)}
+          <li class:playing={it.id === room.playlistCurrentId}>
+            <button class="q-play" onclick={() => room.playItem(it.id)} disabled={!room.canControl} title="Play now">▶</button>
+            <span class="q-title" title={it.src}>{it.title ?? host(it.src)}</span>
+            <span class="q-kind">{KIND_LABEL[it.kind] ?? it.kind}</span>
+            <button class="q-x" onclick={() => room.queueRemove(it.id)} disabled={!room.canControl} aria-label="Remove">✕</button>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/if}
 
   {#if currentSrc}
     <div class="current">
@@ -159,5 +198,71 @@
     margin: 0;
     color: var(--bad);
     font-size: 12px;
+  }
+  .queue {
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .q-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .link {
+    background: none;
+    border: 0;
+    color: var(--accent);
+    padding: 0;
+    font-size: 12px;
+  }
+  .queue ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .queue li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+  .queue li.playing {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .q-play,
+  .q-x {
+    flex: none;
+    padding: 2px 6px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .q-play:hover:not(:disabled),
+  .q-x:hover:not(:disabled) {
+    color: var(--text);
+  }
+  .q-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .q-kind {
+    flex: none;
+    font-size: 10px;
+    color: var(--muted);
   }
 </style>
