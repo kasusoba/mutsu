@@ -73,7 +73,8 @@ export async function initOwnTab(rootIn?: HTMLElement): Promise<void> {
 function renderActive(root: HTMLElement, active: ActiveTab, party: OwnTabParty): void {
   root.innerHTML = `
     <div class="ot-card">
-      <div class="ot-row"><span class="ot-title">Watch party</span><span class="ot-code">${party.code}</span></div>
+      <div class="ot-mode">Watch on this page</div>
+      <div class="ot-row"><span class="ot-title">In a party</span><span class="ot-code">${party.code}</span></div>
       <div class="ot-status" id="otStatus">connecting…</div>
       <ul class="ot-members" id="otMembers"></ul>
       <div class="ot-actions">
@@ -154,20 +155,27 @@ function renderActive(root: HTMLElement, active: ActiveTab, party: OwnTabParty):
 function renderEntry(root: HTMLElement, active: ActiveTab | null, nickname: string): void {
   root.innerHTML = `
     <div class="ot-card">
-      <div class="ot-row"><span class="ot-title">Watch together</span></div>
-      <input id="otNick" class="ot-input" placeholder="your nickname" value="${escapeHtml(nickname)}" />
-      <button id="otStart" class="ot-btn primary" ${active ? "" : "disabled"}>Watch together on this tab</button>
-      <div class="ot-or">or join a code</div>
+      <div class="ot-mode">Watch on this page</div>
+      <div class="ot-desc">Sync this site's video with friends — each of you watches in their own tab.</div>
+
+      <label class="ot-field"><span>Your name</span>
+        <input id="otNick" class="ot-input" placeholder="e.g. alice" value="${escapeHtml(nickname)}" autocomplete="off" />
+      </label>
+
+      <button id="otStart" class="ot-btn primary block" ${active ? "" : "disabled"}>Start a new party here</button>
+      ${active ? "" : '<div class="ot-hint">Open a page with a video to start a party.</div>'}
+
+      <div class="ot-divider"><span>or join a friend's party</span></div>
       <div class="ot-join">
-        <input id="otCode" class="ot-input" placeholder="e.g. K7Q2ABCD" autocomplete="off" />
+        <input id="otCode" class="ot-input" placeholder="paste room code" autocomplete="off" />
         <button id="otJoin" class="ot-btn">Join</button>
       </div>
       <div class="ot-join-result" id="otJoinResult"></div>
-      ${active ? "" : '<div class="ot-hint">Open a page with a video to start a party here.</div>'}
     </div>`;
 
   const nickEl = root.querySelector<HTMLInputElement>("#otNick");
   const codeEl = root.querySelector<HTMLInputElement>("#otCode");
+  const joinBtn = root.querySelector<HTMLButtonElement>("#otJoin");
   const resultEl = root.querySelector<HTMLElement>("#otJoinResult");
 
   const nick = () => (nickEl?.value.trim() || "anon");
@@ -189,53 +197,59 @@ function renderEntry(root: HTMLElement, active: ActiveTab | null, nickname: stri
 
   const doJoin = async () => {
     const code = (codeEl?.value || "").trim().toUpperCase();
-    if (!code || !resultEl) return;
+    if (!resultEl || !joinBtn) return;
+    if (!code) {
+      codeEl?.focus();
+      return;
+    }
     await saveNickname(nick());
+    joinBtn.disabled = true;
     resultEl.textContent = "Looking up that party…";
+    let settled = false;
 
     // Observer-peek the room to learn its source URL before sending you there.
     const obs = new RoomSocket(
       { host: PARTYKIT_HOST, room: code, secret: code, name: nick(), observer: true },
       {
         onSync: () => {
+          if (settled) return;
           const src = obs.sync?.src;
           const kind = obs.sync?.srcKind;
           if (kind !== "site" || !src) {
-            resultEl.textContent =
-              "That party has no own-tab source yet (the host hasn't picked one).";
+            resultEl.textContent = "That party hasn't picked a video yet — try again in a moment.";
+            joinBtn.disabled = false;
             return;
           }
-          // Already on the source? join in place. Otherwise offer to open it.
-          if (active && sameSource(active.url, src)) {
-            resultEl.innerHTML = `<button id="otJoinHere" class="ot-btn primary">Join — you're on it ✓</button>`;
-            resultEl.querySelector("#otJoinHere")?.addEventListener("click", async () => {
-              await saveParty({ code, nickname: nick(), sourceUrl: src, role: "joiner" });
+          settled = true;
+          const onIt = active && sameSource(active.url, src);
+          // Show the name we'll join AS — makes a wrong name (e.g. the code typed
+          // into the name box) immediately obvious before committing.
+          resultEl.innerHTML = `<div class="ot-found">Found — watching <b>${escapeHtml(host(src))}</b></div>
+            <button id="otGo" class="ot-btn primary block">${onIt ? "Join" : "Open &amp; join"} as ${escapeHtml(nick())}</button>`;
+          resultEl.querySelector("#otGo")?.addEventListener("click", async () => {
+            await saveParty({ code, nickname: nick(), sourceUrl: src, role: "joiner" });
+            obs.destroy();
+            if (onIt && active) {
               await browser.tabs.sendMessage(active.id, { type: MSG_START_OWNTAB }).catch(() => {});
-              obs.destroy();
               await initOwnTab(root);
-            });
-          } else {
-            resultEl.innerHTML = `<div class="ot-now">Now watching <b>${escapeHtml(host(src))}</b></div><button id="otOpen" class="ot-btn primary">Open &amp; join</button>`;
-            resultEl.querySelector("#otOpen")?.addEventListener("click", async () => {
-              await saveParty({ code, nickname: nick(), sourceUrl: src, role: "joiner" });
-              obs.destroy();
+            } else {
               await browser.tabs.create({ url: src });
-            });
-          }
+            }
+          });
         },
       },
     );
     // Give it a moment; if no sync arrives the code is probably wrong.
     setTimeout(() => {
-      if (resultEl.textContent === "Looking up that party…") {
-        resultEl.textContent = "Couldn't reach that party — check the code.";
-        obs.destroy();
-      }
+      if (settled) return;
+      resultEl.textContent = "Couldn't find a party with that code.";
+      joinBtn.disabled = false;
+      obs.destroy();
     }, 4000);
     window.addEventListener("pagehide", () => obs.destroy());
   };
 
-  root.querySelector("#otJoin")?.addEventListener("click", doJoin);
+  joinBtn?.addEventListener("click", doJoin);
   codeEl?.addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") doJoin();
   });

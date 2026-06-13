@@ -205,6 +205,66 @@
         border-bottom: 1px solid var(--line);
         background: var(--panel);
       }
+      .section-sub {
+        display: block;
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 11px;
+        color: var(--muted);
+        opacity: 0.75;
+        margin-top: 2px;
+      }
+      /* own-tab section */
+      .ot-mode {
+        display: inline-block;
+        align-self: flex-start;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        padding: 2px 7px;
+        border-radius: 999px;
+      }
+      .ot-desc {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .ot-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .ot-btn.block {
+        width: 100%;
+        text-align: center;
+      }
+      .ot-divider {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--muted);
+        margin: 2px 0;
+      }
+      .ot-divider::before,
+      .ot-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+      .ot-found {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .ot-found b {
+        color: var(--text);
+      }
       .ot-card {
         padding: 12px;
         display: flex;
@@ -310,7 +370,10 @@
       </span>
     </header>
     <div id="ownTab"></div>
-    <div class="section-sep">Share to an open room page</div>
+    <div class="section-sep">
+      Or send this video to a room page
+      <span class="section-sub">a sixseven.pages.dev room tab you have open</span>
+    </div>
     <div class="target" id="targetRow" hidden>
       <label for="room">send to</label>
       <select id="room"></select>
