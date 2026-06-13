@@ -445,7 +445,6 @@
       <div class="player-area" bind:this={playerArea}>
         {#if !room.sync?.src}
           <div class="empty-state">
-            <span class="es-brand">sixseven</span>
             {#if room.canControl}
               <p class="es-title">Nothing playing yet</p>
               <p class="es-sub">Pick something to watch — paste a link or grab a video with the extension.</p>
@@ -736,13 +735,6 @@
     gap: 8px;
     text-align: center;
     padding: 24px;
-  }
-  .es-brand {
-    font-weight: 800;
-    letter-spacing: 1px;
-    font-size: 22px;
-    color: var(--accent);
-    margin-bottom: 8px;
   }
   .es-title {
     margin: 0;

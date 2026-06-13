@@ -22,5 +22,15 @@ export default defineConfig({
     host_permissions: ["<all_urls>"],
     // The toolbar button opens the "share to room" picker — WXT wires the action
     // from the popup entrypoint and takes its tooltip from the popup's <title>.
+    // WXT auto-fills `manifest.icons` from public/icon/{size}.png, but not the
+    // toolbar action icon — set it explicitly so the button shows our logo.
+    action: {
+      default_icon: {
+        16: "/icon/16.png",
+        32: "/icon/32.png",
+        48: "/icon/48.png",
+        128: "/icon/128.png",
+      },
+    },
   },
 });
