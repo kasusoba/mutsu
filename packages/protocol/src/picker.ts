@@ -38,6 +38,8 @@ export interface PickSourceMessage {
   url: string;
   /** Suggested render kind ("embed"|"direct"); the page may still re-detect. */
   srcKind?: "embed" | "direct";
+  /** Add to the playlist queue (§14) instead of playing it now. */
+  queue?: boolean;
 }
 
 /** Validate + narrow an incoming postMessage payload to a PickSourceMessage. */

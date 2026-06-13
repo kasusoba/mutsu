@@ -83,6 +83,7 @@ export default defineContentScript({
             kind: "pick-source",
             url: msg.url,
             srcKind: msg.srcKind,
+            queue: msg.queue,
           };
           window.postMessage(pick, window.location.origin);
           const reply: DeliverSourceReply = { ok: true };

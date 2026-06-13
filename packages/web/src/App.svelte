@@ -319,8 +319,14 @@
       }
       // YouTube always wins (a YT embed would otherwise arrive tagged "embed").
       const auto = classifySource(url);
-      r.setSource(url, auto === "youtube" ? "youtube" : (e.data.srcKind ?? auto));
-      flashPicker("Source set from the extension picker.", true);
+      const kind = auto === "youtube" ? "youtube" : (e.data.srcKind ?? auto);
+      if (e.data.queue) {
+        r.queueAdd(url, kind);
+        flashPicker("Added to the queue from the extension picker.", true);
+      } else {
+        r.setSource(url, kind);
+        flashPicker("Source set from the extension picker.", true);
+      }
     };
     window.addEventListener("message", onPick);
     return () => {

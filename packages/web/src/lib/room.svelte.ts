@@ -147,6 +147,9 @@ export class RoomClient {
   playItem(id: string): void {
     this.send({ type: "playItem", id });
   }
+  queueReorder(id: string, dir: "up" | "down"): void {
+    this.send({ type: "queueReorder", id, dir });
+  }
   playNext(afterId?: string | null): void {
     this.send({ type: "playNext", afterId });
   }

@@ -185,6 +185,12 @@ export interface PlayItemMessage {
   type: "playItem";
   id: string;
 }
+/** Move a queued item one slot up or down (control-mode gated). */
+export interface QueueReorderMessage {
+  type: "queueReorder";
+  id: string;
+  dir: "up" | "down";
+}
 /** Advance to the next queued item. `afterId` = the item the sender thinks just
  *  ended, so the server ignores duplicate advances from multiple clients. */
 export interface PlayNextMessage {
@@ -206,6 +212,7 @@ export type ClientMessage =
   | QueueRemoveMessage
   | QueueClearMessage
   | PlayItemMessage
+  | QueueReorderMessage
   | PlayNextMessage;
 
 // ──────────────────────────────────────────────────────────────────────────

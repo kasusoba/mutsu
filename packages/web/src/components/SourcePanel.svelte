@@ -110,11 +110,13 @@
         <button class="link" onclick={() => room.queueClear()} disabled={!room.canControl}>clear</button>
       </div>
       <ul>
-        {#each room.playlist as it (it.id)}
+        {#each room.playlist as it, i (it.id)}
           <li class:playing={it.id === room.playlistCurrentId}>
             <button class="q-play" onclick={() => room.playItem(it.id)} disabled={!room.canControl} title="Play now">▶</button>
             <span class="q-title" title={it.src}>{it.title ?? host(it.src)}</span>
             <span class="q-kind">{KIND_LABEL[it.kind] ?? it.kind}</span>
+            <button class="q-move" onclick={() => room.queueReorder(it.id, 'up')} disabled={!room.canControl || i === 0} aria-label="Move up">↑</button>
+            <button class="q-move" onclick={() => room.queueReorder(it.id, 'down')} disabled={!room.canControl || i === room.playlist.length - 1} aria-label="Move down">↓</button>
             <button class="q-x" onclick={() => room.queueRemove(it.id)} disabled={!room.canControl} aria-label="Remove">✕</button>
           </li>
         {/each}
@@ -240,17 +242,22 @@
     background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
   .q-play,
-  .q-x {
+  .q-x,
+  .q-move {
     flex: none;
-    padding: 2px 6px;
+    padding: 2px 5px;
     background: none;
     border: none;
     color: var(--muted);
     cursor: pointer;
   }
   .q-play:hover:not(:disabled),
-  .q-x:hover:not(:disabled) {
+  .q-x:hover:not(:disabled),
+  .q-move:hover:not(:disabled) {
     color: var(--text);
+  }
+  .q-move:disabled {
+    opacity: 0.3;
   }
   .q-title {
     flex: 1;

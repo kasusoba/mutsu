@@ -271,6 +271,8 @@ export default class RoomServer implements Party.Server {
         return void this.handleQueueClear(sender);
       case "playItem":
         return void this.handlePlayItem(sender, msg.id);
+      case "queueReorder":
+        return void this.handleQueueReorder(sender, msg.id, msg.dir);
       case "playNext":
         return void this.handlePlayNext(sender, msg.afterId);
     }
@@ -479,6 +481,21 @@ export default class RoomServer implements Party.Server {
     this.s.currentId = next.id;
     await this.applySource(next.src, next.kind, sender.id);
     this.broadcastPlaylist();
+  }
+
+  private async handleQueueReorder(
+    sender: Party.Connection,
+    id: string,
+    dir: "up" | "down",
+  ): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    const i = this.s.queue.findIndex((x) => x.id === id);
+    const j = dir === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= this.s.queue.length) return;
+    const q = this.s.queue;
+    [q[i], q[j]] = [q[j] as SourceItem, q[i] as SourceItem];
+    this.broadcastPlaylist();
+    await this.persist();
   }
 
   private playlistMessage(): ServerMessage {
