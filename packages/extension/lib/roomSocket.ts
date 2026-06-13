@@ -45,11 +45,14 @@ export interface RoomSocketHandlers {
   onLog?: (event: LogEvent) => void;
   onConnected?: (connected: boolean) => void;
   onEvent?: (e: EventMessage) => void;
+  /** Terminal rejection (bad secret) — the socket stops reconnecting. */
+  onFatal?: (message: string) => void;
 }
 
 export class RoomSocket {
   self: MemberId | null = null;
   connected = false;
+  fatalError: string | null = null;
   sync: SyncMessage | null = null;
   members: Member[] = [];
   gate: GateMessage = { type: "gate", paused: false, waitingFor: [] };
@@ -73,9 +76,10 @@ export class RoomSocket {
         observer: this.opts.observer,
       });
     });
-    this.socket.addEventListener("close", () => {
+    this.socket.addEventListener("close", (e) => {
       this.connected = false;
       this.h.onConnected?.(false);
+      if (e.code === 4001 && !this.fatalError) this.failAuth();
     });
     this.socket.addEventListener("message", (e) => this.onMessage(e.data as string));
   }
@@ -116,8 +120,17 @@ export class RoomSocket {
         break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
+        if (msg.code === "unauthorized") this.failAuth();
         break;
     }
+  }
+
+  /** Bad/expired secret: halt the reconnect loop and report up. */
+  private failAuth(): void {
+    this.fatalError = "This room's key is wrong or expired.";
+    this.connected = false;
+    this.socket.close();
+    this.h.onFatal?.(this.fatalError);
   }
 
   private send(msg: ClientMessage): void {

@@ -25,6 +25,9 @@ import { PartySocket } from "partysocket";
 export class RoomClient {
   self = $state<MemberId | null>(null);
   connected = $state(false);
+  /** Set when the server rejects us for good (bad/expired invite key). The socket
+   *  stops reconnecting and the UI shows this instead of an endless "reconnecting…". */
+  fatalError = $state<string | null>(null);
   sync = $state<SyncMessage | null>(null);
   members = $state<Member[]>([]);
   gate = $state<GateMessage>({ type: "gate", paused: false, waitingFor: [] });
@@ -59,8 +62,11 @@ export class RoomClient {
       // (Re)join on every open so reconnects re-admit + resync (SPEC §7).
       this.send({ type: "join", secret: this.secret, name: this.name, mode: this.createMode });
     });
-    this.socket.addEventListener("close", () => {
+    this.socket.addEventListener("close", (e) => {
       this.connected = false;
+      // 4001 = the server refused the secret (it also sends an `error` first, but
+      // catch the close code too as a backstop). Stop the auto-reconnect loop.
+      if (e.code === 4001 && !this.fatalError) this.failAuth();
     });
     this.socket.addEventListener("message", (e) => this.onMessage(e.data));
   }
@@ -99,8 +105,20 @@ export class RoomClient {
         break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
+        // A bad/expired invite key is terminal — without it the server keeps
+        // closing us and PartySocket reconnects forever. Stop and tell the user.
+        if (msg.code === "unauthorized") this.failAuth();
         break;
     }
+  }
+
+  /** Terminal auth failure: halt the reconnect loop and surface a clear message.
+   *  Calling socket.close() explicitly tells PartySocket NOT to reconnect. */
+  private failAuth(): void {
+    this.fatalError =
+      "This room link's key is wrong or expired. Ask whoever invited you for a fresh link.";
+    this.connected = false;
+    this.socket.close();
   }
 
   private send(msg: ClientMessage): void {

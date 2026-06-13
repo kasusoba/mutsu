@@ -383,6 +383,14 @@
   <CreateRoom initialNick={nickname} onCreate={createRoom} />
 {:else if !joined}
   <Join room={loc.room} initialNick={nickname} onJoin={join} />
+{:else if room?.fatalError}
+  <div class="fatal">
+    <div class="fatal-card">
+      <h1>Can't join this room</h1>
+      <p>{room.fatalError}</p>
+      <button onclick={() => location.assign('/')}>Start a new room</button>
+    </div>
+  </div>
 {:else if room && bridge}
   <div class="layout" class:full={!sidebarOpen}>
     <main>
@@ -579,6 +587,38 @@
 {/if}
 
 <style>
+  .fatal {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    padding: 24px;
+    background: var(--bg);
+  }
+  .fatal-card {
+    max-width: 420px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 28px;
+    border-radius: 12px;
+    background: var(--panel);
+  }
+  .fatal-card h1 {
+    margin: 0;
+    font-size: 20px;
+  }
+  .fatal-card p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .fatal-card button {
+    align-self: center;
+    margin-top: 4px;
+    background: var(--accent);
+    color: #fff;
+  }
   .layout {
     display: grid;
     grid-template-columns: 1fr 320px;
