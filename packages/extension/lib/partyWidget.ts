@@ -13,6 +13,7 @@ import type { GateMessage, LogEvent, Member, MemberId, MemberStatus } from "@six
 import { DEFAULT_SUBTITLE_STYLE, type SubtitleStyle } from "@sixseven/protocol/bridge";
 import { browser } from "wxt/browser";
 import type { SubResult } from "./roomSocket";
+import type { TrackInfo } from "./videoHook";
 
 interface WidgetState {
   connected: boolean;
@@ -23,6 +24,7 @@ interface WidgetState {
   playerStatus: MemberStatus;
   subLabel: string | null;
   subStyle: SubtitleStyle;
+  tracks: TrackInfo[];
 }
 
 interface WidgetOpts {
@@ -36,6 +38,7 @@ interface WidgetOpts {
     patchStyle: (patch: Partial<SubtitleStyle>) => void;
     search: (query: string, season?: number, episode?: number) => Promise<SubResult[]>;
     loadResult: (r: SubResult) => Promise<void>;
+    selectTrack: (id: string | null) => void;
   };
 }
 
@@ -64,6 +67,7 @@ export class PartyWidget {
     playerStatus: "loading",
     subLabel: null,
     subStyle: { ...DEFAULT_SUBTITLE_STYLE },
+    tracks: [],
   };
 
   constructor(private readonly opts: WidgetOpts) {}
@@ -143,6 +147,26 @@ export class PartyWidget {
 
     const subLabel = this.$(".sub-label");
     if (subLabel) subLabel.textContent = s.subLabel ?? "no subtitles";
+    const tracksEl = this.$(".sub-tracks") as HTMLSelectElement | null;
+    if (tracksEl) {
+      (tracksEl as HTMLElement).hidden = s.tracks.length === 0;
+      // Rebuild options only when the track set changes (don't clobber selection).
+      const sig = s.tracks.map((t) => t.id).join(",");
+      if (tracksEl.dataset.sig !== sig) {
+        tracksEl.dataset.sig = sig;
+        tracksEl.replaceChildren();
+        const off = document.createElement("option");
+        off.value = "";
+        off.textContent = "Site captions: off";
+        tracksEl.append(off);
+        for (const t of s.tracks) {
+          const o = document.createElement("option");
+          o.value = t.id;
+          o.textContent = `Site: ${t.label}`;
+          tracksEl.append(o);
+        }
+      }
+    }
     const has = Boolean(s.subLabel);
     const subStyleRow = this.$(".sub-style");
     if (subStyleRow) (subStyleRow as HTMLElement).hidden = !has;
@@ -290,6 +314,9 @@ export class PartyWidget {
     q?.addEventListener("keydown", (e) => {
       if ((e as KeyboardEvent).key === "Enter") doSearch();
     });
+
+    const tracks = this.$(".sub-tracks") as HTMLSelectElement | null;
+    tracks?.addEventListener("change", () => this.opts.subs.selectTrack(tracks.value || null));
   }
 
   private onDown = (e: PointerEvent): void => {
@@ -402,6 +429,8 @@ export class PartyWidget {
   .sub-mini { font-size:11px; color:#9aa0b4; }
   .sub-range { flex:1; min-width:54px; accent-color:#6c7cff; }
   .sub-color { width:28px; height:24px; padding:0; border:1px solid #2a2e3d; background:none; border-radius:6px; cursor:pointer; }
+  .sub-tracks { font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; width:100%; }
+  .sub-tracks[hidden] { display:none; }
   .sub-search { display:flex; gap:6px; }
   .sub-se { display:flex; gap:6px; }
   .sub-se[hidden] { display:none; }
@@ -437,6 +466,7 @@ export class PartyWidget {
       <button class="sub-upload">Upload .srt / .vtt</button>
       <span class="sub-label">no subtitles</span>
     </div>
+    <select class="sub-tracks" hidden></select>
     <div class="sub-search">
       <input class="sub-q" type="text" placeholder="search online — title" />
       <button class="sub-se-toggle" title="TV show?">S/E</button>

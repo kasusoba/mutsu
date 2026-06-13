@@ -9,7 +9,15 @@
  */
 
 import { DRIFT_THRESHOLD, type Intent } from "@sixseven/protocol";
-import { STATUS_REPORT_MS } from "@sixseven/protocol/bridge";
+import { STATUS_REPORT_MS, type SubtitleCue } from "@sixseven/protocol/bridge";
+
+/** A text track exposed by the source's own `<video>` (its built-in captions). */
+export interface TrackInfo {
+  /** Index into `video.textTracks` (opaque string id). */
+  id: string;
+  label: string;
+  language: string;
+}
 
 /**
  * Diagnostic logging. Flip to `true`, rebuild, fully reload the room tab, and
@@ -55,6 +63,9 @@ export class VideoHook {
   onStatus: (state: State, currentTime: number, duration: number) => void = () => {};
   onHookChange: (found: boolean) => void = () => {};
   onLocalControl: (intent: Intent, time: number) => void = () => {};
+  /** Fired when the hooked video's embedded text-track list changes. */
+  onTextTracksChanged: () => void = () => {};
+  private trackCleanup: (() => void) | null = null;
 
   /** Set by the entrypoint from overlay state: forward native UI actions? */
   allowLocalControl = false;
@@ -123,6 +134,63 @@ export class VideoHook {
   /** Current position of the hooked video, or null if none (for the subtitle layer). */
   currentTime(): number | null {
     return this.video?.currentTime ?? null;
+  }
+
+  // ── embedded caption tracks (the source's own subtitles) ────────────────────
+
+  /** The hooked video's subtitle/caption text tracks. */
+  getTextTracks(): TrackInfo[] {
+    const v = this.video;
+    if (!v) return [];
+    const out: TrackInfo[] = [];
+    const tt = v.textTracks;
+    for (let i = 0; i < tt.length; i++) {
+      const t = tt[i];
+      if (!t) continue;
+      if (t.kind && t.kind !== "subtitles" && t.kind !== "captions") continue;
+      out.push({ id: String(i), label: t.label || t.language || `Track ${i + 1}`, language: t.language || "" });
+    }
+    return out;
+  }
+
+  /**
+   * Select an embedded track. We set it `hidden` (loads cues without native
+   * rendering) and read the cues so OUR overlay renders them (offset/style apply).
+   * If the cues can't be read — cross-origin track without CORS, or none load —
+   * fall back to the player's native rendering (`showing`) and report null.
+   */
+  useTextTrack(id: string | null, onCues: (cues: SubtitleCue[] | null) => void): void {
+    const v = this.video;
+    if (!v) return onCues(null);
+    const tt = v.textTracks;
+    for (let i = 0; i < tt.length; i++) {
+      const t = tt[i];
+      if (t) t.mode = "disabled";
+    }
+    if (id === null) return onCues(null);
+    const track = tt[Number(id)];
+    if (!track) return onCues(null);
+    track.mode = "hidden";
+    let tries = 0;
+    const read = () => {
+      // Bail if the video swapped out from under us.
+      if (!this.video || this.video.textTracks[Number(id)] !== track) return;
+      const cues = track.cues;
+      if (cues && cues.length) {
+        const arr: SubtitleCue[] = [];
+        for (let i = 0; i < cues.length; i++) {
+          const c = cues[i] as VTTCue;
+          arr.push({ start: c.startTime, end: c.endTime, text: (c.text || "").replace(/<[^>]+>/g, "") });
+        }
+        onCues(arr);
+      } else if (tries++ < 30) {
+        setTimeout(read, 100);
+      } else {
+        track.mode = "showing"; // can't read cues → let the site render natively
+        onCues(null);
+      }
+    };
+    read();
   }
 
   /** Apply the latest server truth to the video (SPEC §4). */
@@ -257,11 +325,24 @@ export class VideoHook {
         this.onLocalControl(v.paused ? "paused" : "playing", v.currentTime);
       }
     });
+
+    // Watch the embedded caption-track list (players add tracks asynchronously).
+    const tt = v.textTracks;
+    const notify = () => this.onTextTracksChanged();
+    tt.addEventListener("addtrack", notify);
+    tt.addEventListener("removetrack", notify);
+    this.trackCleanup = () => {
+      tt.removeEventListener("addtrack", notify);
+      tt.removeEventListener("removetrack", notify);
+    };
+    notify();
   }
 
   private detach(v: HTMLVideoElement): void {
     for (const [name, fn] of this.boundEvents) v.removeEventListener(name, fn);
     this.boundEvents.length = 0;
+    this.trackCleanup?.();
+    this.trackCleanup = null;
     this.clearStall();
     this.expectPlay = this.expectPause = false;
     this.expectSeek = null;

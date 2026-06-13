@@ -60,6 +60,7 @@ export class OwnTabController {
         patchStyle: (p) => this.patchSubStyle(p),
         search: (q, s, e) => this.searchSubs(q, s, e),
         loadResult: (r) => this.loadSubResult(r),
+        selectTrack: (id) => this.selectEmbeddedTrack(id),
       },
     });
 
@@ -108,6 +109,8 @@ export class OwnTabController {
     };
     this.hook.onStatus = (state, t, dur) => this.reportStatus(state, t, dur);
     this.hook.onLocalControl = (intent, time) => this.socket.control(intent, time);
+    // Surface the source's own caption tracks to the widget as they appear.
+    this.hook.onTextTracksChanged = () => this.widget.update({ tracks: this.hook.getTextTracks() });
     this.hook.start();
 
     // The real <video> may live in a nested iframe — drive the same frame-tree
@@ -261,6 +264,29 @@ export class OwnTabController {
     this.subtitles.setCues(cues);
     this.broadcastDown({ kind: "setSubtitles", cues });
     this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle });
+  }
+
+  /** Use one of the source's OWN caption tracks — read its cues into our overlay
+   *  (offset/style apply), or fall back to the player's native rendering. */
+  selectEmbeddedTrack(id: string | null): void {
+    if (id === null) {
+      this.clearSubtitles();
+      return;
+    }
+    const label = this.hook.getTextTracks().find((t) => t.id === id)?.label ?? "captions";
+    this.hook.useTextTrack(id, (cues) => {
+      if (cues) {
+        this.subLabel = `site · ${label}`;
+        this.subtitles.setCues(cues);
+        this.broadcastDown({ kind: "setSubtitles", cues });
+      } else {
+        // Cues weren't CORS-readable → the site renders this track itself.
+        this.subLabel = `site · ${label} (native)`;
+        this.subtitles.setCues(null);
+        this.broadcastDown({ kind: "setSubtitles", cues: null });
+      }
+      this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle });
+    });
   }
 
   /** Live snapshot for the popup (which queries us instead of opening its own
