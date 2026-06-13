@@ -20,7 +20,7 @@ import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@sixseven/p
 const HARD_SEEK = 1.5; // YT can't fine-slew playbackRate, so just snap big desync.
 const SEEK_JUMP = 1.2; // unexpected position jump (s) → the viewer scrubbed.
 const TICK_MS = 250;
-const STALL_DEBOUNCE_MS = 1000; // buffering must persist this long before we gate
+const STALL_DEBOUNCE_MS = 500; // buffering must persist this long before we gate
 const SELF_QUIET_MS = 1500; // ignore buffering / seek-detection right after our own apply
 
 export interface YtApi {
@@ -177,12 +177,16 @@ export class YtPlayer {
   private tick(): void {
     const cur = this.cur();
     const now = performance.now();
+    const dt = (now - this.lastWall) / 1000;
     const playing = this.yt.getPlayerState() === PLAYING;
 
-    // Detect a user scrub on YT's native bar: position jumped vs where normal
-    // playback would be, and it wasn't our own seek.
-    if (playing && now - this.selfActAt > SELF_QUIET_MS) {
-      const expected = this.lastTime + ((now - this.lastWall) / 1000) * this.rate;
+    // Detect a user scrub on YT's native bar: in ONE normal tick the position
+    // jumped far more (or backward) than playback would advance. Skip if the
+    // tick was delayed (dt too long — a throttled background tab, not a scrub)
+    // or right after our own action; buffering only lags ~one tick, so it stays
+    // under the threshold and won't false-fire.
+    if (playing && dt < 1.0 && now - this.selfActAt > SELF_QUIET_MS) {
+      const expected = this.lastTime + dt * this.rate;
       const ourSeek =
         this.expectSeekTo != null &&
         (now - this.expectSeekAt < SELF_QUIET_MS || Math.abs(cur - this.expectSeekTo) < 1.0);
