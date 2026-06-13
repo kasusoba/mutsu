@@ -15,6 +15,7 @@
   import CreateRoom from "./components/CreateRoom.svelte";
   import DirectPlayer from "./components/DirectPlayer.svelte";
   import Embed from "./components/Embed.svelte";
+  import YouTubePlayer from "./components/YouTubePlayer.svelte";
   import Join from "./components/Join.svelte";
   import Members from "./components/Members.svelte";
   import SourcePanel from "./components/SourcePanel.svelte";
@@ -154,8 +155,9 @@
   let lastGatePaused: boolean | null = null;
   $effect(() => {
     if (!room?.sync || !bridge) return;
-    // Direct sources are driven by DirectPlayer, not the iframe bridge.
-    if (room.sync.srcKind === "direct") return;
+    // Only embed sources use the iframe bridge; direct/youtube play in their own
+    // room-page components, site (own-tab) isn't rendered on the room page.
+    if (room.sync.srcKind !== "embed") return;
     const sync = room.sync;
     const paused = room.gate.paused;
     if (sync === lastAppliedSync && paused === lastGatePaused) return;
@@ -234,7 +236,9 @@
         flashPicker(error ?? "The picker sent an invalid source.", false);
         return;
       }
-      r.setSource(url, e.data.srcKind ?? classifySource(url));
+      // YouTube always wins (a YT embed would otherwise arrive tagged "embed").
+      const auto = classifySource(url);
+      r.setSource(url, auto === "youtube" ? "youtube" : (e.data.srcKind ?? auto));
       flashPicker("Source set from the extension picker.", true);
     };
     window.addEventListener("message", onPick);
@@ -334,11 +338,21 @@
             onStatus={onStatusReport}
             onUserControl={onLocalControlReport}
           />
+        {:else if sourceKind === "youtube" && room.sync?.src}
+          <YouTubePlayer
+            src={room.sync.src}
+            sync={room.sync}
+            gate={room.gate}
+            {subs}
+            solo={room.members.length <= 1}
+            onStatus={onStatusReport}
+            onUserControl={onLocalControlReport}
+          />
         {:else}
           <Embed src={room.sync?.src ?? null} {bridge} />
         {/if}
 
-        {#if sourceKind === "direct" && room.sync?.src && (playerStatus === "loading" || playerStatus === "stalled")}
+        {#if (sourceKind === "direct" || sourceKind === "youtube") && room.sync?.src && (playerStatus === "loading" || playerStatus === "stalled")}
           <div class="spinner-wrap"><span class="spinner"></span></div>
         {/if}
 
@@ -357,10 +371,10 @@
           <div class="toast {pickerNotice.ok ? 'ok' : 'bad'}">{pickerNotice.text}</div>
         {/if}
 
-        {#if extMissing && sourceKind !== "direct"}
+        {#if extMissing && sourceKind === "embed"}
           <div class="banner">
             ⚠ sixseven extension not detected — embedded playback can't sync. Install/enable it,
-            then reload. (Direct/HLS sources play without the extension.)
+            then reload. (Direct, YouTube, and HLS sources play without the extension.)
           </div>
         {:else if sourceKind === "embed" && room.sync?.src && room.me?.status === "failed"}
           <div class="banner">
@@ -381,7 +395,7 @@
           </div>
         {/if}
 
-        <!-- Our video bar is for the direct player only; embeds use their own. -->
+        <!-- Our video bar is for the direct player only; embeds + YouTube use their own. -->
         {#if sourceKind === "direct" && room.sync?.src}
           <div class="bar-wrap">
             <Controls
