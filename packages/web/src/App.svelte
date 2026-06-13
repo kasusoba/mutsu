@@ -326,7 +326,26 @@
       </header>
 
       <div class="player-area" bind:this={playerArea}>
-        {#if sourceKind === "direct" && room.sync?.src}
+        {#if !room.sync?.src}
+          <div class="empty-state">
+            <span class="es-brand">sixseven</span>
+            {#if room.canControl}
+              <p class="es-title">Nothing playing yet</p>
+              <p class="es-sub">Pick something to watch — paste a link or grab a video with the extension.</p>
+              <div class="es-actions">
+                <button class="es-go" onclick={() => togglePanel('source')}>
+                  <Link2 size={16} /> Pick a source
+                </button>
+                <button class="es-alt" onclick={copyInvite}>
+                  <Share2 size={16} /> Invite friends
+                </button>
+              </div>
+            {:else}
+              <p class="es-title">Waiting for the host…</p>
+              <p class="es-sub">They'll pick something to watch in a moment.</p>
+            {/if}
+          </div>
+        {:else if sourceKind === "direct"}
           <DirectPlayer
             src={room.sync.src}
             sync={room.sync}
@@ -338,7 +357,7 @@
             onStatus={onStatusReport}
             onUserControl={onLocalControlReport}
           />
-        {:else if sourceKind === "youtube" && room.sync?.src}
+        {:else if sourceKind === "youtube"}
           <YouTubePlayer
             src={room.sync.src}
             sync={room.sync}
@@ -349,7 +368,7 @@
             onUserControl={onLocalControlReport}
           />
         {:else}
-          <Embed src={room.sync?.src ?? null} {bridge} />
+          <Embed src={room.sync.src} {bridge} />
         {/if}
 
         {#if (sourceKind === "direct" || sourceKind === "youtube") && room.sync?.src && (playerStatus === "loading" || playerStatus === "stalled")}
@@ -414,7 +433,7 @@
 
     {#if sidebarOpen}
       <aside>
-        <Members {room} />
+        <Members {room} onInvite={copyInvite} />
         <ActivityLog {room} />
       </aside>
     {/if}
@@ -499,6 +518,53 @@
     right: 0;
     bottom: 0;
     z-index: 20;
+  }
+  .empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    text-align: center;
+    padding: 24px;
+  }
+  .es-brand {
+    font-weight: 800;
+    letter-spacing: 1px;
+    font-size: 22px;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .es-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .es-sub {
+    margin: 0;
+    color: var(--muted);
+    max-width: 360px;
+    line-height: 1.5;
+  }
+  .es-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .es-go,
+  .es-alt {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 16px;
+    font-weight: 600;
+  }
+  .es-go {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
   }
   .spinner-wrap {
     position: absolute;

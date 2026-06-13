@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import ExtensionNotice from "./ExtensionNotice.svelte";
 
   interface Props {
     room: string;
@@ -25,7 +26,7 @@
     <label for="nick">Your nickname</label>
     <input id="nick" bind:value={nick} placeholder="e.g. alice" autocomplete="off" />
     <button type="submit" disabled={!nick.trim()}>Join the room</button>
-    <p class="hint">Make sure the sixseven extension is installed so playback can sync.</p>
+    <ExtensionNotice />
   </form>
 </div>
 
@@ -62,10 +63,5 @@
     background: var(--accent);
     border-color: var(--accent);
     margin-top: 4px;
-  }
-  .hint {
-    margin: 6px 0 0;
-    color: var(--muted);
-    font-size: 12px;
   }
 </style>
