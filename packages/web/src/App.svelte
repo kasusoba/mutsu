@@ -1,5 +1,14 @@
 <script lang="ts">
   import type { Intent, MemberStatus, SyncMessage } from "@sixseven/protocol";
+  import {
+    Captions,
+    Crown,
+    Link2,
+    PanelRightClose,
+    PanelRightOpen,
+    Users,
+    X,
+  } from "lucide-svelte";
   import ActivityLog from "./components/ActivityLog.svelte";
   import Controls from "./components/Controls.svelte";
   import DirectPlayer from "./components/DirectPlayer.svelte";
@@ -256,13 +265,17 @@
         <span class="brand">sixseven</span>
         <span class="dot {room.connected ? 'on' : 'off'}" title={room.connected ? 'connected' : 'reconnecting…'}></span>
         <span class="spacer"></span>
-        <button class="tb" class:on={activePanel === 'subs'} onclick={() => togglePanel('subs')} disabled={!room.sync?.src}>Subtitles</button>
-        <button class="tb" class:on={activePanel === 'source'} onclick={() => togglePanel('source')} disabled={!room.canControl}>Source</button>
-        <button class="tb" onclick={() => room?.setMode(mode === 'host' ? 'open' : 'host')} disabled={!room.canControl} title="Who can control playback">
-          {mode === 'host' ? '👑 Host-only' : '👥 Anyone controls'}
+        <button class="tb" class:on={activePanel === 'subs'} onclick={() => togglePanel('subs')} disabled={!room.sync?.src}>
+          <Captions size={16} /> Subtitles
         </button>
-        <button class="tb" onclick={() => (sidebarOpen = !sidebarOpen)} title="Members & activity">
-          {sidebarOpen ? '⟩ Hide panel' : '⟨ Show panel'}
+        <button class="tb" class:on={activePanel === 'source'} onclick={() => togglePanel('source')} disabled={!room.canControl}>
+          <Link2 size={16} /> Source
+        </button>
+        <button class="tb" onclick={() => room?.setMode(mode === 'host' ? 'open' : 'host')} disabled={!room.canControl} title="Who can control playback">
+          {#if mode === 'host'}<Crown size={16} /> Host-only{:else}<Users size={16} /> Anyone{/if}
+        </button>
+        <button class="tb icon-only" onclick={() => (sidebarOpen = !sidebarOpen)} title={sidebarOpen ? 'Hide panel' : 'Show panel'}>
+          {#if sidebarOpen}<PanelRightClose size={16} />{:else}<PanelRightOpen size={16} />{/if}
         </button>
       </header>
 
@@ -312,12 +325,12 @@
 
         {#if activePanel === "source"}
           <div class="popover">
-            <div class="pop-head"><span>Source</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close">✕</button></div>
+            <div class="pop-head"><span>Source</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close"><X size={16} /></button></div>
             <SourcePanel {room} />
           </div>
         {:else if activePanel === "subs" && subs}
           <div class="popover">
-            <div class="pop-head"><span>Subtitles</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close">✕</button></div>
+            <div class="pop-head"><span>Subtitles</span><button class="x" onclick={() => (activePanel = null)} aria-label="Close"><X size={16} /></button></div>
             <SubtitlePanel {subs} />
           </div>
         {/if}
@@ -391,8 +404,14 @@
     flex: 1;
   }
   .tb {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 6px 12px;
     font-size: 13px;
+  }
+  .tb.icon-only {
+    padding: 6px 8px;
   }
   .tb.on {
     border-color: var(--accent);
@@ -436,10 +455,16 @@
     font-weight: 600;
   }
   .pop-head .x {
-    padding: 2px 8px;
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+    padding: 4px;
     background: none;
     border: none;
     color: var(--muted);
+  }
+  .pop-head .x:hover {
+    color: var(--text);
   }
   .hud {
     position: absolute;

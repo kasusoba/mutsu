@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Crown } from "lucide-svelte";
   import type { MemberStatus } from "@sixseven/protocol";
   import type { RoomClient } from "../lib/room.svelte";
 
@@ -27,7 +28,7 @@
         <span class="dot {m.status}"></span>
         <span class="name">
           {m.name}{#if m.id === room.self}<span class="you"> (you)</span>{/if}
-          {#if room.sync?.hostId === m.id}<span class="host"> ★ host</span>{/if}
+          {#if room.sync?.hostId === m.id}<span class="host" title="host"><Crown size={13} fill="currentColor" /></span>{/if}
         </span>
         <span class="status {m.status}">{statusLabel[m.status]}</span>
         {#if canSkip(m.status)}
@@ -81,6 +82,9 @@
   }
   .host {
     color: var(--accent);
+    display: inline-flex;
+    vertical-align: middle;
+    line-height: 0;
   }
   .dot {
     width: 8px;

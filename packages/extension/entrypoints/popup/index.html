@@ -97,13 +97,16 @@
       }
       .ico {
         flex: none;
-        width: 26px;
-        height: 26px;
-        border-radius: 6px;
+        width: 28px;
+        height: 28px;
+        border-radius: 7px;
         display: grid;
         place-items: center;
         background: var(--panel-2);
-        font-size: 14px;
+        color: var(--muted);
+      }
+      .cand:hover .ico {
+        color: var(--text);
       }
       .meta {
         min-width: 0;
@@ -158,6 +161,10 @@
         border-radius: 6px;
         padding: 5px 10px;
         cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        line-height: 0;
       }
       button.send:hover {
         border-color: var(--accent);

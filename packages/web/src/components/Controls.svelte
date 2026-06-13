@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { FastForward, Maximize, Pause, Play, Rewind, Volume2, VolumeX } from "lucide-svelte";
   import type { RoomClient } from "../lib/room.svelte";
 
   interface Props {
@@ -98,13 +99,15 @@
 
   <div class="ctl">
     <button class="ico play" onclick={togglePlay} disabled={!room.canControl || !hasSrc} title={playing ? "Pause" : "Play"}>
-      {playing ? "⏸" : "▶"}
+      {#if playing}<Pause size={20} fill="currentColor" />{:else}<Play size={20} fill="currentColor" />{/if}
     </button>
-    <button class="ico" onclick={() => nudge(-10)} disabled={!room.canControl || !hasSrc} title="Back 10s">⏪</button>
-    <button class="ico" onclick={() => nudge(10)} disabled={!room.canControl || !hasSrc} title="Forward 10s">⏩</button>
+    <button class="ico" onclick={() => nudge(-10)} disabled={!room.canControl || !hasSrc} title="Back 10s"><Rewind size={18} /></button>
+    <button class="ico" onclick={() => nudge(10)} disabled={!room.canControl || !hasSrc} title="Forward 10s"><FastForward size={18} /></button>
 
     <div class="vol">
-      <button class="ico" onclick={onMute} title={muted ? "Unmute" : "Mute"}>{muted || volume === 0 ? "🔇" : "🔊"}</button>
+      <button class="ico" onclick={onMute} title={muted ? "Unmute" : "Mute"}>
+        {#if muted || volume === 0}<VolumeX size={18} />{:else}<Volume2 size={18} />{/if}
+      </button>
       <input class="vol-slider" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} oninput={(e) => onVolume(+e.currentTarget.value)} aria-label="Volume" />
     </div>
 
@@ -121,7 +124,7 @@
         <option value={r}>{r}×</option>
       {/each}
     </select>
-    <button class="ico" onclick={onFullscreen} title="Fullscreen">⛶</button>
+    <button class="ico" onclick={onFullscreen} title="Fullscreen"><Maximize size={18} /></button>
   </div>
 </div>
 
@@ -187,20 +190,18 @@
     gap: 4px;
   }
   .ico {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: none;
     border: none;
     border-radius: 8px;
-    padding: 6px 8px;
-    min-width: 34px;
+    padding: 7px;
     color: #fff;
-    font-size: 15px;
-    line-height: 1;
+    line-height: 0;
   }
   .ico:hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.15);
-  }
-  .ico.play {
-    font-size: 18px;
   }
   .vol {
     display: flex;

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Search, Upload } from "lucide-svelte";
   import type { SubtitleController } from "../lib/subtitleController.svelte";
 
   interface Props {
@@ -21,7 +22,7 @@
   <!-- source row -->
   <div class="row">
     <span class="lbl">subs</span>
-    <button onclick={() => fileInput?.click()}>📁 upload</button>
+    <button class="with-ico" onclick={() => fileInput?.click()}><Upload size={14} /> upload</button>
     <input bind:this={fileInput} type="file" accept=".srt,.vtt" onchange={onFile} hidden />
     <input
       class="search"
@@ -29,11 +30,11 @@
       placeholder="search online (movie/show name)…"
       onkeydown={(e) => e.key === "Enter" && subs.search(query)}
     />
-    <button onclick={() => subs.search(query)} disabled={subs.searching || !query.trim()}>
-      {subs.searching ? "…" : "search"}
+    <button class="with-ico" onclick={() => subs.search(query)} disabled={subs.searching || !query.trim()}>
+      <Search size={14} /> {subs.searching ? "…" : "search"}
     </button>
     {#if subs.activeLabel}
-      <span class="active" title={subs.activeLabel}>▣ {subs.activeLabel}</span>
+      <span class="active" title={subs.activeLabel}>{subs.activeLabel}</span>
       <button class="link" onclick={() => subs.clear()}>clear</button>
     {/if}
   </div>
@@ -142,6 +143,11 @@
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.4px;
+  }
+  .with-ico {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
   }
   .search {
     flex: 1;

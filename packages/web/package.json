@@ -12,6 +12,7 @@
   "dependencies": {
     "@sixseven/protocol": "workspace:*",
     "hls.js": "^1.6.16",
+    "lucide-svelte": "^1.0.1",
     "partysocket": "^1.0.3"
   },
   "devDependencies": {

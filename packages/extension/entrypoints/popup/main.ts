@@ -20,6 +20,7 @@ import {
   PICKER_PING,
   rankCandidates,
 } from "../../lib/picker";
+import { icon } from "./icons";
 
 interface RoomTab {
   tabId: number;
@@ -97,7 +98,7 @@ function renderCandidates(candidates: MediaCandidate[]): void {
 
     const ico = document.createElement("span");
     ico.className = "ico";
-    ico.textContent = c.type === "iframe" ? "▣" : "▶";
+    ico.append(icon(c.type === "iframe" ? "embed" : c.direct ? "video" : "page"));
 
     const meta = document.createElement("div");
     meta.className = "meta";
@@ -177,6 +178,7 @@ async function discoverRooms(): Promise<RoomTab[]> {
   return found;
 }
 
+manualSend.prepend(icon("send", 14));
 manualSend.addEventListener("click", () => {
   const url = manualInput.value.trim();
   if (url) deliver(url);
