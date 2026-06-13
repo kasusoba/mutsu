@@ -117,16 +117,29 @@ function renderActive(root: HTMLElement, active: ActiveTab, party: OwnTabParty):
   const pollId = setInterval(poll, 1500);
   window.addEventListener("pagehide", () => clearInterval(pollId));
 
+  // The widget can be hidden from the widget itself OR from here — reflect the
+  // real stored state in the label, not the static "Hide widget" default.
+  const hideBtn = root.querySelector<HTMLElement>("#otHide");
+  const labelHide = (hidden: boolean) => {
+    if (hideBtn) hideBtn.textContent = hidden ? "Show widget" : "Hide widget";
+  };
+  browser.storage.local.get(HIDDEN_KEY).then((g) => labelHide(Boolean(g[HIDDEN_KEY])));
+  // Keep the label right if the widget is hidden from the widget while we're open.
+  const onStore = (changes: Record<string, { newValue?: unknown }>, area: string) => {
+    if (area === "local" && changes[HIDDEN_KEY]) labelHide(Boolean(changes[HIDDEN_KEY].newValue));
+  };
+  browser.storage.onChanged.addListener(onStore);
+  window.addEventListener("pagehide", () => browser.storage.onChanged.removeListener(onStore));
+
   root.querySelector("#otCopy")?.addEventListener("click", () => {
     navigator.clipboard.writeText(party.code).catch(() => {});
   });
-  root.querySelector("#otHide")?.addEventListener("click", async () => {
+  hideBtn?.addEventListener("click", async () => {
     const cur = (await browser.storage.local.get(HIDDEN_KEY))[HIDDEN_KEY];
     const next = !cur;
     await browser.tabs.sendMessage(active.id, { type: MSG_SET_WIDGET_HIDDEN, hidden: next }).catch(() => {});
     await browser.storage.local.set({ [HIDDEN_KEY]: next });
-    const btn = root.querySelector("#otHide");
-    if (btn) btn.textContent = next ? "Show widget" : "Hide widget";
+    labelHide(next);
   });
   root.querySelector("#otLeave")?.addEventListener("click", async () => {
     clearInterval(pollId);
