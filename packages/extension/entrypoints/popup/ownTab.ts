@@ -8,9 +8,11 @@
  */
 
 import { browser } from "wxt/browser";
+import type { GateMessage, Member, MemberId, MemberStatus } from "@sixseven/protocol";
 import {
   loadNickname,
   makeCode,
+  MSG_GET_STATE,
   MSG_SET_WIDGET_HIDDEN,
   MSG_START_OWNTAB,
   MSG_STOP_OWNTAB,
@@ -23,6 +25,15 @@ import {
   saveParty,
 } from "../../lib/config";
 import { RoomSocket } from "../../lib/roomSocket";
+
+interface PartyState {
+  code: string;
+  connected: boolean;
+  members: Member[];
+  gate: GateMessage;
+  selfId: MemberId | null;
+  playerStatus: MemberStatus;
+}
 
 const HIDDEN_KEY = "sixseven:widgetHidden";
 
@@ -75,32 +86,36 @@ function renderActive(root: HTMLElement, active: ActiveTab, party: OwnTabParty):
   const statusEl = root.querySelector<HTMLElement>("#otStatus");
   const membersEl = root.querySelector<HTMLElement>("#otMembers");
 
-  // Observe the room (read-only) to mirror live members + status in the popup.
-  const obs = new RoomSocket(
-    { host: PARTYKIT_HOST, room: party.code, secret: party.code, name: party.nickname, observer: true },
-    {
-      onConnected: (c) => {
-        if (statusEl && !c) statusEl.textContent = "reconnecting…";
-      },
-      onSync: () => {
-        if (statusEl) statusEl.textContent = obs.gate.paused ? "buffering…" : "in sync";
-      },
-      onGate: () => {
-        if (statusEl) {
-          statusEl.textContent = obs.gate.paused
-            ? `waiting for ${obs.gate.waitingFor.length} to buffer…`
-            : "in sync";
-        }
-      },
-      onMembers: () => {
-        if (!membersEl) return;
-        membersEl.innerHTML = obs.members
-          .map((m) => `<li><span class="md ${m.status}"></span>${escapeHtml(m.name)}</li>`)
-          .join("");
-      },
-    },
-  );
-  window.addEventListener("pagehide", () => obs.destroy());
+  // Ask the source tab's controller for live state — the popup never opens its
+  // own connection, so it can't show up as a phantom member.
+  const poll = async () => {
+    const st = (await browser.tabs
+      .sendMessage(active.id, { type: MSG_GET_STATE })
+      .catch(() => null)) as PartyState | null;
+    if (!st) {
+      if (statusEl) statusEl.textContent = "starting on this tab…";
+      return;
+    }
+    if (statusEl) {
+      statusEl.textContent = !st.connected
+        ? "reconnecting…"
+        : st.gate.paused
+          ? `waiting for ${st.gate.waitingFor.length} to buffer…`
+          : st.playerStatus === "loading"
+            ? "loading the video…"
+            : st.playerStatus === "failed"
+              ? "no video found on this page"
+              : "in sync";
+    }
+    if (membersEl) {
+      membersEl.innerHTML = st.members
+        .map((m) => `<li><span class="md ${m.status}"></span>${escapeHtml(m.name)}</li>`)
+        .join("");
+    }
+  };
+  poll();
+  const pollId = setInterval(poll, 1500);
+  window.addEventListener("pagehide", () => clearInterval(pollId));
 
   root.querySelector("#otCopy")?.addEventListener("click", () => {
     navigator.clipboard.writeText(party.code).catch(() => {});
@@ -114,7 +129,7 @@ function renderActive(root: HTMLElement, active: ActiveTab, party: OwnTabParty):
     if (btn) btn.textContent = next ? "Show widget" : "Hide widget";
   });
   root.querySelector("#otLeave")?.addEventListener("click", async () => {
-    obs.destroy();
+    clearInterval(pollId);
     await removeParty(party.sourceUrl);
     await browser.tabs.sendMessage(active.id, { type: MSG_STOP_OWNTAB }).catch(() => {});
     await initOwnTab(root);

@@ -24,11 +24,13 @@ import {
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/sandbox";
 import {
+  MSG_GET_STATE,
   MSG_SET_WIDGET_HIDDEN,
   MSG_START_OWNTAB,
   MSG_STOP_OWNTAB,
   PARTIES_KEY,
   partyForUrl,
+  removeParty,
 } from "../lib/config";
 import { OwnTabController } from "../lib/ownTab";
 import { Overlay } from "../lib/overlay";
@@ -94,16 +96,31 @@ export default defineContentScript({
       // widget. No web room page involved. Driven by chrome.storage (written by
       // the popup) plus direct popup messages for start/stop/hide.
       let ownTab: OwnTabController | null = null;
-      const startOwnTab = async () => {
-        if (ownTab) return;
-        const p = await partyForUrl(location.href);
-        if (!p) return;
-        ownTab = new OwnTabController(p);
-        ownTab.start();
-      };
+      // Synchronous guard: start is async (awaits storage), and the popup both
+      // writes storage AND messages us on create — without this, both calls slip
+      // past an `if (ownTab)` check before `ownTab` is set and we'd spin up two
+      // controllers/sockets (the duplicate "alice" members).
+      let starting = false;
       const stopOwnTab = () => {
         ownTab?.destroy();
         ownTab = null;
+      };
+      const leaveOwnTab = async () => {
+        const p = await partyForUrl(location.href);
+        if (p) await removeParty(p.sourceUrl);
+        stopOwnTab();
+      };
+      const startOwnTab = async () => {
+        if (ownTab || starting) return;
+        starting = true;
+        try {
+          const p = await partyForUrl(location.href);
+          if (!p || ownTab) return;
+          ownTab = new OwnTabController(p, () => void leaveOwnTab());
+          ownTab.start();
+        } finally {
+          starting = false;
+        }
       };
       browser.runtime.onMessage.addListener((raw: unknown) => {
         const m = raw as { type?: string; hidden?: boolean } | null;
@@ -119,6 +136,9 @@ export default defineContentScript({
         if (m.type === MSG_SET_WIDGET_HIDDEN) {
           ownTab?.setWidgetHidden(Boolean(m.hidden));
           return Promise.resolve({ ok: true });
+        }
+        if (m.type === MSG_GET_STATE) {
+          return Promise.resolve(ownTab ? ownTab.getState() : null);
         }
         return;
       });

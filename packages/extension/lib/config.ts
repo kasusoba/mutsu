@@ -19,6 +19,9 @@ export const PARTYKIT_HOST = "sixseven.kasusoba.partykit.dev";
 export const MSG_START_OWNTAB = "sixseven:start-owntab" as const;
 export const MSG_STOP_OWNTAB = "sixseven:stop-owntab" as const;
 export const MSG_SET_WIDGET_HIDDEN = "sixseven:set-widget-hidden" as const;
+/** Popup asks the source tab's controller for a live state snapshot (so the
+ *  popup never opens its own connection — no phantom member). */
+export const MSG_GET_STATE = "sixseven:get-state" as const;
 
 export type PartyRole = "creator" | "joiner";
 

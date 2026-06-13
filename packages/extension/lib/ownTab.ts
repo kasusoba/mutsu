@@ -17,7 +17,7 @@ import type { MemberStatus, SyncMessage } from "@sixseven/protocol";
 import type { FrameToPageMessage, PageToFrameMessage } from "@sixseven/protocol/bridge";
 import { unwrap, wrap } from "@sixseven/protocol/bridge";
 import type { Intent } from "@sixseven/protocol";
-import { type OwnTabParty, PARTYKIT_HOST, removeParty } from "./config";
+import { type OwnTabParty, PARTYKIT_HOST } from "./config";
 import { PartyWidget } from "./partyWidget";
 import { RoomSocket } from "./roomSocket";
 import { VideoHook } from "./videoHook";
@@ -38,11 +38,16 @@ export class OwnTabController {
   private lastAppliedSync: SyncMessage | null = null;
   private lastPaused: boolean | null = null;
 
-  constructor(private readonly party: OwnTabParty) {
+  constructor(
+    private readonly party: OwnTabParty,
+    /** Full teardown (remove stored party + stop) — owned by the content script
+     *  so the widget's Leave and the popup's Leave follow the exact same path. */
+    private readonly onLeave: () => void,
+  ) {
     this.widget = new PartyWidget({
       code: party.code,
       sourceUrl: party.sourceUrl,
-      onLeave: () => this.leave(),
+      onLeave: () => this.onLeave(),
     });
 
     this.socket = new RoomSocket(
@@ -207,9 +212,17 @@ export class OwnTabController {
     this.widget.setHidden(hidden);
   }
 
-  async leave(): Promise<void> {
-    await removeParty(this.party.sourceUrl);
-    this.destroy();
+  /** Live snapshot for the popup (which queries us instead of opening its own
+   *  connection — avoids a phantom presence member). */
+  getState() {
+    return {
+      code: this.party.code,
+      connected: this.socket.connected,
+      members: this.socket.members,
+      gate: this.socket.gate,
+      selfId: this.socket.self,
+      playerStatus: this.lastStatus ?? "loading",
+    };
   }
 
   destroy(): void {
