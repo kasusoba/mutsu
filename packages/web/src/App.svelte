@@ -17,6 +17,7 @@
   import Embed from "./components/Embed.svelte";
   import YouTubePlayer from "./components/YouTubePlayer.svelte";
   import Join from "./components/Join.svelte";
+  import Chat from "./components/Chat.svelte";
   import Members from "./components/Members.svelte";
   import Reactions from "./components/Reactions.svelte";
   import SourcePanel from "./components/SourcePanel.svelte";
@@ -142,10 +143,12 @@
     b.onReady = () => s.resend();
     b.onLocalControl = onLocalControlReport;
 
-    // Fun layer (§14): spawn a floating reaction for every reaction event
-    // (including our own — the server echoes it back, so everyone sees the same).
+    // Fun layer (§14): every event echoes back from the server (incl. our own),
+    // so all clients render the same. Reactions float; chat goes to the panel +
+    // briefly floats as a bubble.
     r.onEvent = (e) => {
       if (e.kind === "reaction") spawnReaction(e.text);
+      else if (e.kind === "chat") addChat(e.name, e.text, e.from === r.self);
     };
 
     bridge = b;
@@ -155,14 +158,27 @@
 
   // ── reactions (float-up) ────────────────────────────────────────────────────
   let reactions = $state<{ id: number; emoji: string; x: number }[]>([]);
-  let reactSeq = 0;
+  let funSeq = 0;
   function spawnReaction(emoji: string) {
-    const id = reactSeq++;
+    const id = funSeq++;
     const x = 8 + Math.random() * 84;
     reactions = [...reactions, { id, emoji, x }];
     setTimeout(() => {
       reactions = reactions.filter((r) => r.id !== id);
     }, 2300);
+  }
+
+  // ── chat (sidebar panel + transient bubbles over the player) ────────────────
+  let chatLog = $state<{ id: number; name: string; text: string; self: boolean }[]>([]);
+  let chatBubbles = $state<{ id: number; name: string; text: string }[]>([]);
+  let sideTab = $state<"chat" | "activity">("chat");
+  function addChat(name: string, text: string, self: boolean) {
+    const id = funSeq++;
+    chatLog = [...chatLog, { id, name, text, self }].slice(-100);
+    chatBubbles = [...chatBubbles, { id, name, text }];
+    setTimeout(() => {
+      chatBubbles = chatBubbles.filter((b) => b.id !== id);
+    }, 6000);
   }
 
   // Forward the latest server truth into the iframe (SPEC §4). Only when the
@@ -451,13 +467,29 @@
         {#if room.sync?.src}
           <Reactions {reactions} onReact={(e) => room?.say('reaction', e)} />
         {/if}
+
+        {#if chatBubbles.length}
+          <div class="chat-bubbles">
+            {#each chatBubbles as b (b.id)}
+              <div class="bubble-msg"><span class="bn">{b.name}</span> {b.text}</div>
+            {/each}
+          </div>
+        {/if}
       </div>
     </main>
 
     {#if sidebarOpen}
       <aside>
         <Members {room} onInvite={copyInvite} />
-        <ActivityLog {room} />
+        <div class="side-tabs">
+          <button class:on={sideTab === 'chat'} onclick={() => (sideTab = 'chat')}>Chat</button>
+          <button class:on={sideTab === 'activity'} onclick={() => (sideTab = 'activity')}>Activity</button>
+        </div>
+        {#if sideTab === 'chat'}
+          <Chat {room} messages={chatLog} />
+        {:else}
+          <ActivityLog {room} />
+        {/if}
       </aside>
     {/if}
   </div>
@@ -696,5 +728,61 @@
     border-left: 1px solid var(--line);
     background: var(--panel);
     min-height: 0;
+  }
+  .side-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--line);
+  }
+  .side-tabs button {
+    flex: 1;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .side-tabs button.on {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+  .chat-bubbles {
+    position: absolute;
+    left: 12px;
+    bottom: 84px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 60%;
+    pointer-events: none;
+  }
+  .bubble-msg {
+    align-self: flex-start;
+    padding: 6px 11px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 13px;
+    line-height: 1.35;
+    animation: bubble-in 0.2s ease-out, bubble-out 0.4s ease-in 5.6s forwards;
+  }
+  .bubble-msg .bn {
+    font-weight: 700;
+    color: #9ec1ff;
+    margin-right: 4px;
+  }
+  @keyframes bubble-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  @keyframes bubble-out {
+    to {
+      opacity: 0;
+    }
   }
 </style>

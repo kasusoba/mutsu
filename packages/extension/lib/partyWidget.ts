@@ -26,6 +26,7 @@ interface WidgetState {
   subStyle: SubtitleStyle;
   tracks: TrackInfo[];
   selectedTrack: string | null;
+  chat: { id: number; name: string; text: string; self: boolean }[];
 }
 
 interface WidgetOpts {
@@ -43,6 +44,8 @@ interface WidgetOpts {
   };
   /** Send an emoji reaction to the room (§14). */
   onReact: (emoji: string) => void;
+  /** Send a chat message to the room (§14). */
+  onChat: (text: string) => void;
 }
 
 const REACT_EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "😢", "🎉"];
@@ -74,6 +77,7 @@ export class PartyWidget {
     subStyle: { ...DEFAULT_SUBTITLE_STYLE },
     tracks: [],
     selectedTrack: null,
+    chat: [],
   };
 
   constructor(private readonly opts: WidgetOpts) {}
@@ -149,6 +153,16 @@ export class PartyWidget {
         .reverse()
         .map((e) => `<li>${esc(describe(e, s.members))}</li>`)
         .join("");
+    }
+
+    const chat = this.$(".chat");
+    if (chat) {
+      const atBottom = chat.scrollTop + chat.clientHeight >= chat.scrollHeight - 4;
+      chat.innerHTML = s.chat
+        .slice(-50)
+        .map((m) => `<li class="${m.self ? "me" : ""}"><span class="cn">${esc(m.name)}</span>${esc(m.text)}</li>`)
+        .join("");
+      if (atBottom) chat.scrollTop = chat.scrollHeight;
     }
 
     const subLabel = this.$(".sub-label");
@@ -243,6 +257,16 @@ export class PartyWidget {
     for (const b of this.root?.querySelectorAll<HTMLButtonElement>(".react") ?? []) {
       b.addEventListener("click", () => this.opts.onReact(b.textContent ?? ""));
     }
+
+    const chatIn = this.$(".chat-in") as HTMLInputElement | null;
+    this.$(".chat-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const t = chatIn?.value.trim();
+      if (t) {
+        this.opts.onChat(t);
+        if (chatIn) chatIn.value = "";
+      }
+    });
 
     // Subtitles (personal): file upload + offset/position.
     const fileInput = this.$(".sub-file") as HTMLInputElement | null;
@@ -446,6 +470,12 @@ export class PartyWidget {
   .mstat{font-size:11px; color:#9aa0b4;}
   .log { max-height: 110px; overflow:auto; }
   .log li { font-size:12px; color:#c7cad6; }
+  .chat { max-height: 120px; overflow:auto; }
+  .chat li { font-size:12px; color:#e7e9ef; word-break:break-word; }
+  .chat li .cn { font-weight:700; color:#6c7cff; margin-right:4px; }
+  .chat li.me .cn { color:#41d18a; }
+  .chat-form { display:flex; gap:6px; padding:0 12px 8px; }
+  .chat-in { flex:1; min-width:0; font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; }
   .subs { padding: 0 12px 8px; display:flex; flex-direction:column; gap:6px; }
   .sub-row { display:flex; align-items:center; gap:8px; }
   .sub-label { font-size:11px; color:#9aa0b4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
@@ -492,6 +522,9 @@ export class PartyWidget {
   <ul class="members"></ul>
   <div class="section-title">Activity</div>
   <ul class="log"></ul>
+  <div class="section-title">Chat</div>
+  <ul class="chat"></ul>
+  <form class="chat-form"><input class="chat-in" type="text" placeholder="Message…" maxlength="500" /><button class="chat-send">Send</button></form>
   <div class="section-title">Subtitles</div>
   <div class="subs">
     <div class="sub-row">

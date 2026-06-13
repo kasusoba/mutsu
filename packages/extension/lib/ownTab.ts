@@ -41,6 +41,8 @@ export class OwnTabController {
   private subLabel: string | null = null;
   // Fun layer (§14): floating emoji reactions over the site's video.
   private reactions = new ReactionLayer(() => this.hook.videoRect());
+  private chatLog: { id: number; name: string; text: string; self: boolean }[] = [];
+  private chatSeq = 0;
   private lastStatus: MemberStatus | null = null;
   private failTimer: ReturnType<typeof setTimeout> | null = null;
   private lastResyncAt = 0;
@@ -70,6 +72,7 @@ export class OwnTabController {
         selectTrack: (id) => this.selectEmbeddedTrack(id),
       },
       onReact: (emoji) => this.socket.say("reaction", emoji),
+      onChat: (text) => this.socket.say("chat", text),
     });
 
     this.socket = new RoomSocket(
@@ -98,7 +101,16 @@ export class OwnTabController {
         onMembers: () => this.widget.update({ members: this.socket.members, selfId: this.socket.self }),
         onLog: () => this.widget.update({ log: this.socket.log }),
         onEvent: (e) => {
-          if (e.kind === "reaction") this.reactions.spawn(e.text);
+          if (e.kind === "reaction") {
+            this.reactions.spawn(e.text);
+          } else if (e.kind === "chat") {
+            this.reactions.chat(e.name, e.text);
+            this.chatLog = [
+              ...this.chatLog,
+              { id: this.chatSeq++, name: e.name, text: e.text, self: e.from === this.socket.self },
+            ].slice(-100);
+            this.widget.update({ chat: this.chatLog });
+          }
         },
       },
     );
