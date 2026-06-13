@@ -39,6 +39,7 @@ export type LogKind =
   | "setSource"
   | "played"
   | "paused"
+  | "seeked"
   | "skipped"
   | "autoSkipped"
   | "tookControl"

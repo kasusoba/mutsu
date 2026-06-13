@@ -78,6 +78,19 @@ interface StoredMember {
 
 const STORAGE_KEY = "room";
 const LOG_CAP = 100;
+/** A control whose time jumps more than this (s) from the live position is a
+ *  user scrub, not drift — only those get logged as "seeked" (SPEC §11). */
+const SEEK_LOG_THRESHOLD = 2;
+
+/** Format a playback position (seconds) as m:ss or h:mm:ss for the activity log. */
+function fmtClock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
 
 function freshState(): RoomState {
   return {
@@ -407,8 +420,7 @@ export default class RoomServer implements Party.Server {
   ): Promise<void> {
     const now = Date.now();
     this.s.src = src;
-    this.s.srcKind =
-      kind === "direct" || kind === "site" || kind === "youtube" ? kind : "embed";
+    this.s.srcKind = kind === "direct" || kind === "site" || kind === "youtube" ? kind : "embed";
     // Autoplay queue items start `playing`; the buffer gate still holds until
     // everyone's loaded (a not-ready client reports stalled → soft-pause).
     this.s.intent = play ? "playing" : "paused";
@@ -542,10 +554,20 @@ export default class RoomServer implements Party.Server {
     if (typeof time !== "number" || !Number.isFinite(time)) return;
 
     const now = Date.now();
-    // Log only play/pause TRANSITIONS (not seeks, which reuse the same intent) so
-    // the activity log shows who played/paused without scrubbing spam (SPEC §11).
+    // A control reuses the same intent for a seek, so distinguish: a play/pause
+    // TRANSITION logs played/paused; otherwise a big jump from where the clock
+    // actually is right now means the user scrubbed → log "seeked to <time>".
+    // The threshold keeps routine drift corrections out of the log (SPEC §11).
     if (intent !== this.s.intent) {
       this.appendLog({ kind: intent === "playing" ? "played" : "paused", actor: sender.id });
+    } else {
+      const projected =
+        this.s.intent === "playing"
+          ? this.s.time + ((now - this.s.updatedAt) / 1000) * this.s.rate
+          : this.s.time;
+      if (Math.abs(time - projected) > SEEK_LOG_THRESHOLD) {
+        this.appendLog({ kind: "seeked", actor: sender.id, detail: fmtClock(time) });
+      }
     }
     this.s.intent = intent;
     this.s.time = Math.max(0, time);

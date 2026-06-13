@@ -39,6 +39,8 @@
         return `${nameOf(e.actor)} pressed play`;
       case "paused":
         return `${nameOf(e.actor)} pressed pause`;
+      case "seeked":
+        return `${nameOf(e.actor)} seeked to ${e.detail ?? "?"}`;
       case "skipped":
         return `${nameOf(e.actor)} skipped ${nameOf(e.target)}`;
       case "autoSkipped":
