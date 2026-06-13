@@ -96,8 +96,11 @@ export interface JoinMessage {
  *   No room page / iframe: each member opens that URL in their own tab and the
  *   extension hooks the site's native `<video>` there. The URL is metadata
  *   ("open this to watch"), not a stream — same "move the URL + clock" model.
+ * - `youtube`: a YouTube video → driven on the room page via the YouTube IFrame
+ *   Player API (no extension; YT exposes no raw `<video>` to hook). Same control
+ *   model as `direct` — our control bar moves the clock.
  */
-export type SourceKind = "embed" | "direct" | "site";
+export type SourceKind = "embed" | "direct" | "site" | "youtube";
 
 /** Privileged (control-mode gated): pick the source everyone loads (SPEC §12). */
 export interface SetSourceMessage {

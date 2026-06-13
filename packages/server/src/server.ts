@@ -357,7 +357,8 @@ export default class RoomServer implements Party.Server {
 
     const now = Date.now();
     this.s.src = src;
-    this.s.srcKind = kind === "direct" || kind === "site" ? kind : "embed";
+    this.s.srcKind =
+      kind === "direct" || kind === "site" || kind === "youtube" ? kind : "embed";
     this.s.intent = "paused";
     this.s.time = 0;
     this.s.rate = 1;

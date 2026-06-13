@@ -24,12 +24,33 @@ export function isHlsUrl(url: string): boolean {
 }
 
 /**
- * Best-effort auto-classification of a source URL (SPEC §15 P4). A recognizable
- * media file / HLS playlist → `direct` (our `<video>` player); anything else →
- * `embed` (framed page). Tokenized stream URLs without a file extension look
- * like `embed` here — the user can override to `direct` in the source picker.
+ * Extract a YouTube video id from any common YouTube URL form, else null.
+ */
+export function parseYouTubeId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtu.be") return u.pathname.slice(1).split("/")[0] || null;
+    if (host.endsWith("youtube.com") || host === "youtube-nocookie.com") {
+      if (u.pathname === "/watch") return u.searchParams.get("v");
+      const m = u.pathname.match(/^\/(?:embed|shorts|v|live)\/([^/?#]+)/);
+      if (m) return m[1] ?? null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Best-effort auto-classification of a source URL (SPEC §15 P4). YouTube →
+ * `youtube` (IFrame API player); a recognizable media file / HLS playlist →
+ * `direct` (our `<video>` player); anything else → `embed` (framed page).
+ * Tokenized stream URLs without a file extension look like `embed` here — the
+ * user can override to `direct` in the source picker.
  */
 export function classifySource(url: string): SourceKind {
+  if (parseYouTubeId(url)) return "youtube";
   try {
     const u = new URL(url);
     return FILE_EXT.test(u.pathname) ? "direct" : "embed";
