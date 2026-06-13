@@ -39,6 +39,9 @@ const manualSend = $<HTMLButtonElement>("manualSend");
 const rescanBtn = $<HTMLButtonElement>("rescan");
 
 let rooms: RoomTab[] = [];
+// Last scan's failure reason (if any), shown to the user instead of being
+// swallowed — a silent empty list is indistinguishable from a real error.
+let scanError: string | null = null;
 
 function notice(msg: string, kind: "ok" | "err"): void {
   noticeEl.textContent = msg;
@@ -145,17 +148,28 @@ function renderRooms(): void {
 }
 
 async function scanActiveTab(): Promise<MediaCandidate[]> {
+  scanError = null;
   const [active] = await browser.tabs.query({ active: true, currentWindow: true });
-  if (!active?.id) return [];
+  if (!active?.id) {
+    scanError = "No active tab to scan.";
+    return [];
+  }
+  if (!/^https?:/i.test(active.url ?? "")) {
+    scanError = "This isn't a web page the extension can scan (chrome://, store, PDF…).";
+    return [];
+  }
   try {
     const results = await browser.scripting.executeScript({
       target: { tabId: active.id, allFrames: true },
       func: collectFrameCandidates,
     });
-    return rankCandidates(results.map((r) => (r.result as MediaCandidate[]) ?? []));
-  } catch {
-    // Restricted page (chrome://, the web store, a PDF viewer, etc.).
-    notice("Can't scan this page. Open the site with the video, then reopen this.", "err");
+    const merged = rankCandidates(results.map((r) => (r.result as MediaCandidate[]) ?? []));
+    console.debug(`[sixseven] scanned ${active.url} → ${merged.length} candidate(s)`, merged);
+    return merged;
+  } catch (e) {
+    // Host access not granted, restricted page, or the frame rejected injection.
+    scanError = `Can't scan this page: ${(e as Error)?.message ?? "unknown error"}`;
+    console.warn("[sixseven] scan failed", e);
     return [];
   }
 }
@@ -176,6 +190,7 @@ async function discoverRooms(): Promise<RoomTab[]> {
       }
     }),
   );
+  console.debug(`[sixseven] discovered ${found.length} room tab(s)`, found);
   return found;
 }
 
@@ -188,16 +203,33 @@ manualInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && manualInput.value.trim()) deliver(manualInput.value.trim());
 });
 
+let scanning = false;
+
 async function refresh(): Promise<void> {
+  if (scanning) return;
+  scanning = true;
   rescanBtn.disabled = true;
-  const [candidates, found] = await Promise.all([scanActiveTab(), discoverRooms()]);
-  rooms = found;
-  renderRooms();
-  renderCandidates(candidates);
-  if (!rooms.length) {
-    notice("No open sixseven room found. Open & join your room link, then Rescan.", "err");
+  rescanBtn.textContent = "Scanning…";
+  try {
+    const [candidates, found] = await Promise.all([scanActiveTab(), discoverRooms()]);
+    rooms = found;
+    renderRooms();
+    renderCandidates(candidates);
+    // Prioritise the most useful problem: a scan error first (we couldn't even
+    // look), then a missing room (we looked but you've nowhere to send it).
+    if (scanError) {
+      notice(scanError, "err");
+    } else if (!rooms.length) {
+      notice("No open sixseven room found. Open & join your room link, then Rescan.", "err");
+    }
+  } catch (e) {
+    console.warn("[sixseven] refresh failed", e);
+    notice(`Something went wrong: ${(e as Error)?.message ?? "unknown error"}`, "err");
+  } finally {
+    scanning = false;
+    rescanBtn.disabled = false;
+    rescanBtn.textContent = "Rescan";
   }
-  rescanBtn.disabled = false;
 }
 
 rescanBtn.addEventListener("click", refresh);
