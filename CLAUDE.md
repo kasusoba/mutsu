@@ -139,12 +139,43 @@ secret, `history.pushState`es to `/r/<name>#k=<secret>` (no reload), and joins. 
 room-creating join → creator is host) — and still flips live via the top-bar toggle (`setMode`) and
 `passControl` (host handoff). The Invite button copies the capability URL.
 
-**Next up:** frame-forbidding **own-tab sync** (P4 — for sites that refuse to embed, e.g. aggregators);
-YouTube iframe API; embedded-track subtitles.
+**Own-tab watch party (§11) — built:** an extension-native party with **no web room page** — start
+on any tab (popup → "Watch together"), share a short **room code** (no invite links), join via the
+popup. The connection lives in the **source tab's content script** (it's the member); the room page
+is optional. A draggable, edge-magnetic, hideable Shadow-DOM widget carries members/chat/subs/leave;
+reuses `VideoHook`/the frame bridge/gate. Subtitles work in own-tab too (upload + online search +
+embedded-track picker for top-frame video + full personal style). `srcKind:"site"`; `lib/ownTab.ts`,
+`lib/partyWidget.ts`, `lib/roomSocket.ts`, `lib/config.ts`.
 
-**Known caveats:** YouTube needs a user gesture per viewer before it'll play (autoplay policy);
-anti-devtools / sandboxed-iframe sites may not be hookable (we don't fight them — §3). A
-`DEBUG_HUD` flag in `extension/lib/subtitleLayer.ts` toggles an on-screen subtitle readout (off).
+**YouTube (§13) — built:** `srcKind:"youtube"` driven on the room page via the **IFrame Player API**
+(no extension). Native YT controls + muted autoplay ("tap to unmute") + bidirectional sync.
+`lib/ytPlayer.ts`, `components/YouTubePlayer.svelte`.
+
+**Subtitles — expanded:** directed online search (title + season/episode, sorted by downloads),
+numeric offset input, embedded-track picker (read the source's own caption tracks into our overlay,
+native fallback). Parser shared at `@sixseven/protocol/subtitles`.
+
+**Onboarding — built:** guided empty room (pick-a-source / invite / waiting-for-host), live
+extension-presence notice on create/join (`components/ExtensionNotice.svelte`, install link in
+`lib/links.ts`), solo-invite nudge, "how it works", live source-kind detection.
+
+**Fun layer (§12) — built:** ephemeral `say`/`event` broadcast → emoji reactions (float), chat
+(sidebar/widget + bubbles), GIFs via a GIPHY proxy (`gif.search` op, `GIPHY_API_KEY` in `room.env`)
+with per-browser favorites (tag-filterable), and per-viewer display settings (per-type on/off +
+Linger speed). Room launcher is in the top bar (off the video). `components/{Reactions,Chat,GifPicker}.svelte`,
+`extension/lib/reactionLayer.ts`, `server/src/gif.ts`.
+
+**Next up (idea list):** playlist (queue + auto-advance); audio-only sources (YouTube Music etc. →
+"Spotify jam"). Deferred: embedded-track subs for nested-iframe/room (escape hatch accepted);
+cross-device favorites.
+
+**Deploy reminder:** new server features (own-tab `observer`, fun-layer `say`/`gif`, M2 mode, subtitle
+ordering) only work once `npx partykit deploy` + `env push` are run — the extension always talks to the
+deployed server, and the deployed web is a static build (redeploy via `wrangler pages deploy`).
+
+**Known caveats:** YouTube/own-tab need a user gesture per viewer for *sound* (autoplay policy;
+muted autostart works); anti-devtools / sandboxed-iframe sites may not be hookable (we don't fight
+them — §3). A `DEBUG_HUD` flag in `extension/lib/subtitleLayer.ts` toggles an on-screen subtitle readout (off).
 
 **Gotcha for contributors:** never pass a Svelte `$state` value straight to `postMessage` — proxies
 aren't structured-cloneable and silently throw. Send `$state.snapshot(...)` (see `subtitleController`).

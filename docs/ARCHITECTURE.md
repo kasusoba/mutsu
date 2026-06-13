@@ -91,14 +91,15 @@ Drift correction is hard if clients project playback time using their own wall c
 Client → server:
 | type | payload | meaning |
 |---|---|---|
-| `join` | `{ secret, name, mode? }` | join a room; secret = capability-URL fragment; `mode` is the creator's chosen control mode, honoured only on the room-creating join (SPEC §10). Server replies with `welcome` + a snapshot |
-| `setSource` | `{ src, kind? }` | change the room's source; resets time to 0 (control-mode gated). `kind` = `embed`\|`direct` (default `embed`) — how clients render it |
+| `join` | `{ secret, name, mode?, observer? }` | join a room; secret = capability-URL fragment; `mode` is the creator's chosen control mode, honoured only on the room-creating join (SPEC §10); `observer:true` reads state without being a presence member (own-tab join-peek, §11). Server replies with `welcome` + a snapshot |
+| `setSource` | `{ src, kind? }` | change the room's source; resets time to 0 (control-mode gated). `kind` = `embed`\|`direct`\|`site`\|`youtube` (default `embed`) — how clients render it |
 | `control` | `{ intent, time, rate? }` | user played/paused/seeked locally (accepted per control mode) |
 | `setMode` | `{ mode }` | switch room between `open` and `host` (control-mode gated) |
 | `passControl` | `{ toId }` | (host mode) hand control to another member |
 | `status` | `{ state }` | report readiness `loading\|ready\|stalled\|failed` for the buffer gate (SPEC §9) |
 | `skip` | `{ memberId }` | drop a stalled/failed member from the gate (control-mode gated) |
 | `resync` | `{}` | request a fresh `sync` + `gate` snapshot (used on reconnect) |
+| `say` | `{ kind, text }` | ephemeral fun-layer broadcast — `kind` = `reaction`\|`chat`\|`gif`; the server fans it out and forgets it (§12). Rate-limited |
 
 Server → client:
 | type | payload | meaning |
@@ -108,6 +109,7 @@ Server → client:
 | `members` | `{ list }` | presence list (`id, name, status`) |
 | `gate` | `{ paused, waitingFor }` | soft buffer gate; play only when `sync.intent==='playing'` AND `gate.paused===false` |
 | `log` | `{ event }` | one appended activity-log event (SPEC §11) |
+| `event` | `{ kind, text, from, name, at }` | a fanned-out fun-layer event (reaction/chat/gif) — ephemeral, never stored (§12) |
 | `error` | `{ code, message }` | connection refused / action rejected |
 
 **Control acceptance rule (server-enforced):** a `control`/`setSource`/`setMode`/`skip` is
@@ -505,3 +507,38 @@ the room's source; a member on a different video shows as "not on the source", n
 
 Code: `lib/roomSocket.ts` (framework-agnostic client), `lib/ownTab.ts` (top-frame controller),
 `lib/partyWidget.ts`, `lib/config.ts` (party storage + code), `entrypoints/popup/ownTab.ts`.
+
+## 12. Fun layer (reactions · chat · GIFs)
+
+Ephemeral social overlay on top of any source — never persisted (it isn't playback truth) and
+never in the video path (§2). One small channel carries it all: a client `say {kind,text}`
+(`kind` = `reaction` | `chat` | `gif`) that the DO fans out to everyone as `event` and forgets,
+with a light per-connection rate limit. Works identically on the room page and the own-tab widget
+because both hold a socket.
+
+- **Reactions** — an emoji floats up over the video and fades. Launcher lives in the room top bar
+  (out of the video, non-disruptive) / the widget panel.
+- **Chat** — text in the sidebar (room) / widget panel, *and* a brief bubble over the video.
+- **GIFs** — searched via GIPHY through the **member-gated proxy** (`gif.search` op, key in
+  `room.env`, never on the client — same model as subtitles). The chosen GIF's **URL** is
+  broadcast; each viewer loads it first-party from GIPHY's CDN ("move the URL, not the bytes").
+  A picker with Search + ★ Favorites; favorites persist locally (per-browser) and remember the
+  search term as a tag, so favorites are filterable.
+- **Personal display settings** — each viewer chooses how *they* see it: per-type on/off for
+  floating reactions/GIFs/chat-bubbles, plus a Linger speed (a `--fun-mult` CSS var scales the
+  animation/lifetime). Gates display only; sending and receiving are unchanged. Stored locally.
+
+Code: protocol `SayMessage`/`EventMessage`; server `handleSay` + `gif.ts`; web `Reactions.svelte`,
+`Chat.svelte`, `GifPicker.svelte`; extension `reactionLayer.ts` + widget sections.
+
+## 13. YouTube (IFrame Player API)
+
+YouTube exposes no raw `<video>` to hook, so a `youtube` source is driven on the room page by the
+official **IFrame Player API** — no extension needed. `srcKind: "youtube"` (auto-detected from the
+URL by `parseYouTubeId`; the picker sends a YouTube tab as the canonical video). `YtPlayer`
+(`ytPlayer.ts`) is the analogue of `WebPlayer`: it enforces the server truth (seek on a command or
+a >3s desync — YT can't fine-slew the rate) AND reports the viewer's own play/pause/seek on
+YouTube's native controls back to the room (`onStateChange` + position-jump detection, with
+expect-flags suppressing our own apply echoes). **Autoplay:** starts muted so it auto-starts in
+sync with no click (browser policy allows muted autoplay); a "Tap to unmute" pill gets audio.
+Buffering is debounced before it gates the room (a seek/play naturally buffers).
