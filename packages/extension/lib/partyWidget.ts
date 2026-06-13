@@ -110,8 +110,14 @@ export class PartyWidget {
     await this.restorePosition();
     const hidden = (await browser.storage.local.get(HIDDEN_KEY))[HIDDEN_KEY];
     if (hidden) this.setHidden(true);
-    const savedFavs = (await browser.storage.local.get(GIF_FAV_KEY))[GIF_FAV_KEY];
-    if (Array.isArray(savedFavs)) this.gifFavs = savedFavs as FavGif[];
+    // GIF favorites live in storage.sync so they follow your signed-in browser
+    // across devices (capped below to stay under sync's ~8KB/item limit).
+    try {
+      const savedFavs = (await browser.storage.sync.get(GIF_FAV_KEY))[GIF_FAV_KEY];
+      if (Array.isArray(savedFavs)) this.gifFavs = savedFavs as FavGif[];
+    } catch {
+      /* sync unavailable — favorites are session-only this run */
+    }
     this.render();
   }
 
@@ -278,10 +284,11 @@ export class PartyWidget {
   private toggleGifFav(g: GifResult): void {
     const exists = this.gifFavs.some((f) => f.url === g.url);
     const q = (this.$(".gif-q") as HTMLInputElement | null)?.value.trim() ?? "";
+    // Cap to ~25 so the whole array fits sync's per-item byte limit.
     this.gifFavs = exists
       ? this.gifFavs.filter((f) => f.url !== g.url)
-      : [{ ...g, q }, ...this.gifFavs].slice(0, 60);
-    browser.storage.local.set({ [GIF_FAV_KEY]: this.gifFavs });
+      : [{ ...g, q }, ...this.gifFavs].slice(0, 25);
+    browser.storage.sync.set({ [GIF_FAV_KEY]: this.gifFavs }).catch(() => {});
     this.renderGifGrid();
   }
 
