@@ -7,6 +7,7 @@
     PanelRightClose,
     PanelRightOpen,
     Share2,
+    SmilePlus,
     Users,
     X,
   } from "lucide-svelte";
@@ -172,6 +173,8 @@
   let chatLog = $state<{ id: number; name: string; text: string; self: boolean }[]>([]);
   let chatBubbles = $state<{ id: number; name: string; text: string }[]>([]);
   let sideTab = $state<"chat" | "activity">("chat");
+  let reactOpen = $state(false);
+  const REACT_EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "😢", "🎉"];
   function addChat(name: string, text: string, self: boolean) {
     const id = funSeq++;
     chatLog = [...chatLog, { id, name, text, self }].slice(-100);
@@ -338,6 +341,18 @@
         <span class="dot {room.connected ? 'on' : 'off'}" title={room.connected ? 'connected' : 'reconnecting…'}></span>
         <span class="room-name" title="Room">{loc.room}</span>
         <span class="spacer"></span>
+        <div class="react-wrap">
+          <button class="tb" class:on={reactOpen} onclick={() => (reactOpen = !reactOpen)} disabled={!room.sync?.src} title="React">
+            <SmilePlus size={16} /> React
+          </button>
+          {#if reactOpen}
+            <div class="react-pop">
+              {#each REACT_EMOJIS as e (e)}
+                <button class="react-emoji" onclick={() => room?.say('reaction', e)}>{e}</button>
+              {/each}
+            </div>
+          {/if}
+        </div>
         <button class="tb" onclick={copyInvite} title="Copy the invite link">
           <Share2 size={16} /> Invite
         </button>
@@ -465,7 +480,7 @@
         {/if}
 
         {#if room.sync?.src}
-          <Reactions {reactions} onReact={(e) => room?.say('reaction', e)} />
+          <Reactions {reactions} />
         {/if}
 
         {#if chatBubbles.length}
@@ -554,6 +569,35 @@
   }
   .tb.icon-only {
     padding: 6px 8px;
+  }
+  .react-wrap {
+    position: relative;
+  }
+  .react-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    display: flex;
+    gap: 2px;
+    padding: 4px 6px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  }
+  .react-emoji {
+    background: none;
+    border: none;
+    border-radius: 999px;
+    padding: 4px 6px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .react-emoji:hover {
+    background: var(--panel-2);
+    transform: scale(1.15);
   }
   .tb.on {
     border-color: var(--accent);

@@ -99,7 +99,6 @@ export class OwnTabController {
           this.widget.update({ gate: this.socket.gate });
         },
         onMembers: () => this.widget.update({ members: this.socket.members, selfId: this.socket.self }),
-        onLog: () => this.widget.update({ log: this.socket.log }),
         onEvent: (e) => {
           if (e.kind === "reaction") {
             this.reactions.spawn(e.text);
