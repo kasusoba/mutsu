@@ -345,8 +345,6 @@
             gate={room.gate}
             {subs}
             solo={room.members.length <= 1}
-            {muted}
-            {volume}
             onStatus={onStatusReport}
             onUserControl={onLocalControlReport}
           />
@@ -397,8 +395,8 @@
           </div>
         {/if}
 
-        <!-- Our video bar drives the direct + YouTube players; embeds use their own. -->
-        {#if (sourceKind === "direct" || sourceKind === "youtube") && room.sync?.src}
+        <!-- Our video bar is for the direct player only; embeds + YouTube use their own. -->
+        {#if sourceKind === "direct" && room.sync?.src}
           <div class="bar-wrap">
             <Controls
               {room}

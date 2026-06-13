@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@sixseven/protocol";
+  import { Volume2 } from "lucide-svelte";
   import { parseYouTubeId } from "../lib/source";
   import type { SubtitleController } from "../lib/subtitleController.svelte";
   import { loadYouTubeApi, type YtApi, YtPlayer } from "../lib/ytPlayer";
@@ -10,27 +11,23 @@
     gate: GateMessage;
     subs: SubtitleController | null;
     solo: boolean;
-    muted: boolean;
-    volume: number;
     onStatus: (state: MemberStatus, currentTime: number, duration: number) => void;
+    /** The viewer's play/pause/seek on YouTube's own controls → relay to the room. */
     onUserControl: (intent: Intent, time: number) => void;
   }
-  const { src, sync, gate, subs, solo, muted, volume, onStatus, onUserControl }: Props = $props();
+  const { src, sync, gate, subs, solo, onStatus, onUserControl }: Props = $props();
 
   let mount = $state<HTMLDivElement | null>(null);
   let player = $state<YtPlayer | null>(null);
   let loadError = $state<string | null>(null);
+  let muted = $state(true);
   let cueText = $state<string | null>(null);
 
   const videoId = $derived(parseYouTubeId(src));
 
-  function toggle() {
-    if (!sync || !player) return;
-    onUserControl(sync.intent === "playing" ? "paused" : "playing", player.currentTime());
-  }
-
-  // Build the YT player once the mount node exists. We hide YT's own controls
-  // (controls=0) and drive it from our control bar — same UX as the direct player.
+  // Build the YT player once the mount node exists. YouTube's NATIVE controls
+  // stay visible (controls:1); we sync through the API and report the viewer's
+  // own actions back. Muted autoplay so it starts in sync with no click.
   $effect(() => {
     const el = mount;
     const id = videoId;
@@ -47,16 +44,17 @@
         if (cancelled) return;
         const host = document.createElement("div");
         el.appendChild(host);
-        const yt = new YT.Player(host, {
+        const ytPlayer = new YT.Player(host, {
           videoId: id,
-          playerVars: { controls: 0, modestbranding: 1, rel: 0, playsinline: 1, disablekb: 1 },
+          playerVars: { controls: 1, modestbranding: 1, rel: 0, playsinline: 1 },
           events: {
             onReady: (e: { target: YtApi }) => {
               if (cancelled) return;
               p = new YtPlayer(e.target);
               p.onStatus = onStatus;
+              p.onUserControl = onUserControl;
+              p.onMutedChange = (m) => (muted = m);
               p.solo = solo;
-              p.setVolume(volume, muted);
               p.start();
               player = p;
               if (sync) p.apply(sync, gate);
@@ -67,7 +65,7 @@
             },
           },
         });
-        void yt;
+        void ytPlayer;
       })
       .catch(() => {
         loadError = "Couldn't load the YouTube player.";
@@ -81,12 +79,8 @@
     };
   });
 
-  // Keep solo + personal audio current.
   $effect(() => {
     if (player) player.solo = solo;
-  });
-  $effect(() => {
-    player?.setVolume(volume, muted);
   });
 
   // Enforce server truth — only on a fresh sync or a gate-pause flip.
@@ -101,7 +95,7 @@
     p.apply(sync, gate);
   });
 
-  // Subtitle overlay ticker (our personal cues, rendered over the player).
+  // Subtitle overlay ticker (our personal cues, over the player).
   $effect(() => {
     const p = player;
     if (!p) return;
@@ -122,11 +116,12 @@
 
 <div class="stage">
   <div class="yt" bind:this={mount}></div>
-  <!-- Click-shield: YT's native click-to-toggle would desync us, so intercept
-       clicks and route play/pause through the room instead. -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="shield" onclick={toggle}></div>
+
+  {#if muted && !loadError}
+    <button class="unmute" onclick={() => player?.unmute()}>
+      <Volume2 size={16} /> Tap to unmute
+    </button>
+  {/if}
 
   {#if cueText && style}
     <div
@@ -157,8 +152,7 @@
     background: #000;
     min-height: 0;
   }
-  .yt,
-  .shield {
+  .yt {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -168,9 +162,24 @@
     width: 100%;
     height: 100%;
   }
-  .shield {
+  .unmute {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
     cursor: pointer;
-    background: transparent;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   }
   .subs {
     position: absolute;
@@ -181,6 +190,8 @@
     padding: 0 6%;
     line-height: 1.3;
     z-index: 2;
+    /* sit above YouTube's control bar */
+    margin-bottom: 8%;
   }
   .subs span {
     padding: 0.1em 0.4em;

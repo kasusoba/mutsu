@@ -69,6 +69,41 @@ export function collectFrameCandidates(): MediaCandidate[] {
   // Skip our own room page's embed machinery if this frame is itself a room.
   const SELF_ATTR = "data-sixseven-room";
 
+  // A YouTube watch/embed page → offer the canonical video URL as the one pick.
+  // The room re-classifies it to the `youtube` source kind (IFrame API player).
+  if (window.top === window.self) {
+    let ytId: string | null = null;
+    try {
+      const u = new URL(here);
+      const host = u.hostname.replace(/^www\./, "");
+      if (host === "youtu.be") ytId = u.pathname.slice(1).split("/")[0] || null;
+      else if (host.endsWith("youtube.com") || host === "youtube-nocookie.com") {
+        if (u.pathname === "/watch") ytId = u.searchParams.get("v");
+        else {
+          const m = u.pathname.match(/^\/(?:embed|shorts|v|live)\/([^/?#]+)/);
+          if (m) ytId = m[1] ?? null;
+        }
+      }
+    } catch {
+      /* not a URL we can parse */
+    }
+    if (ytId) {
+      return [
+        {
+          type: "video",
+          url: `https://www.youtube.com/watch?v=${ytId}`,
+          kind: "embed", // the room maps YouTube URLs to the `youtube` kind
+          pageUrl: here,
+          pageTitle: document.title,
+          direct: false,
+          playing: true,
+          width: 1280,
+          height: 720,
+        },
+      ];
+    }
+  }
+
   // Players like vidstack/shaka mount the <video> inside a shadow root, where a
   // plain document.querySelectorAll can't see it. Walk open shadow roots too so
   // we still find the element (and its <source> stream URL).
