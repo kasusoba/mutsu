@@ -469,7 +469,7 @@ export class PartyWidget {
   .leave { color:#ff5d6c; border-color:#3a2730; }
 </style>
 <div class="bubble" title="sixseven watch party — drag me, click to open">
-  <span class="logo">66</span>
+  <svg class="logo" viewBox="0 0 24 24" width="22" height="22" fill="#6c7cff" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
   <span class="bubble-count"></span>
   <span class="bdot dot off"></span>
 </div>
