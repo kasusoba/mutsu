@@ -11,6 +11,7 @@ import {
   type FrameToPageMessage,
   type SubtitleCue,
   type SubtitleStyle,
+  type TrackInfo,
   unwrap,
   wrap,
 } from "@sixseven/protocol/bridge";
@@ -27,6 +28,7 @@ export class PageBridge {
   onStatus: ((state: StatusState, currentTime: number, duration: number) => void) | null = null;
   onLocalControl: ((intent: Intent, time: number) => void) | null = null;
   onEnded: (() => void) | null = null;
+  onTracks: ((tracks: TrackInfo[]) => void) | null = null;
 
   constructor() {
     this.onMessage = (e: MessageEvent) => {
@@ -50,6 +52,9 @@ export class PageBridge {
           break;
         case "ended":
           this.onEnded?.();
+          break;
+        case "tracks":
+          this.onTracks?.(msg.tracks);
           break;
       }
     };
@@ -95,6 +100,11 @@ export class PageBridge {
   /** Hide/show our in-iframe overlay + subtitle layer ("use the site's player"). */
   setHidden(hidden: boolean): void {
     this.post({ kind: "setHidden", hidden });
+  }
+
+  /** Select one of the embed's own caption tracks (or null = off) — §13. */
+  selectTrack(trackId: string | null): void {
+    this.post({ kind: "selectTrack", trackId });
   }
 
   private post(msg: Parameters<typeof wrap>[0]): void {

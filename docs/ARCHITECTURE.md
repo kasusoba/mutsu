@@ -134,10 +134,14 @@ since it's the only side that can read/write `video.currentTime`.
 
 Page → frame: `hello` (handshake) · `apply { src, intent, time, rate, gatePaused }` (the server
 truth to enforce) · `overlay { takeover }` (escape hatch) · `setSubtitles { cues }` · `setSubtitleStyle { style }`
-(personal subtitles, §13 — page→frame only, never networked).
-Frame → page: `ready` · `hooked { found }` · `status { state, currentTime }` (every 1s + on
+(personal subtitles, §13 — page→frame only, never networked) · `setHidden { hidden }` ("use the
+site's player") · `selectTrack { trackId }` (turn one of the embed's **own** caption tracks on/off,
+§13 — `trackId:null` = off).
+Frame → page: `ready` · `hooked { found }` · `status { state, currentTime, duration }` (every 1s + on
 events) · `localControl { intent, time }` (native-UI action when the escape hatch is open, which
-the page relays to the server as a `control`).
+the page relays to the server as a `control`) · `ended` (video reached its end → playlist
+auto-advance, §14) · `tracks { tracks }` (the embed's own caption tracks, reported on hook + when
+the list changes, so the page can offer them).
 
 ### Source picker (extension popup → room page)
 
@@ -430,8 +434,18 @@ State additions: `stalled: Set<id>`, `intent: 'playing'|'paused'`, `skipped: Set
   "our-player sources only" — superseded by the overlay approach.)
 - Per-viewer, local (never synced): **offset/delay**, **position** (vertical), **style**
   (font size, color, background box, opacity).
-- Subtitle sources (decided): **upload** (`.srt`/`.vtt`), **embedded tracks** (if present in
-  the HLS/file), **online search** (OpenSubtitles-style API). No paste-URL.
+- Subtitle sources (decided): **upload** (`.srt`/`.vtt`), **embedded tracks**, **online search**
+  (OpenSubtitles-style API). No paste-URL.
+- **Embedded tracks (built):** the source's *own* baked-in caption tracks. The content script reads
+  `<video>.textTracks` (in the engaged frame — which may be several iframes deep), surfaces them up
+  the bridge as `tracks`, and the web panel lists them under **"From this site"**. Picking one sends
+  `selectTrack { trackId }` back **down** the frame tree; the frame with the video reads that track's
+  cues into **our own overlay layer** (so the same offset/position/style apply) — or, if the cues
+  aren't CORS-readable, falls back to the player's native rendering. Mutually exclusive with an
+  uploaded/searched file (selecting one clears the other); the same `SubtitleController` drives all
+  three sources. **Scope:** embedded tracks come via the bridge, so they work for `embed` + own-tab
+  `site` sources; the same-origin **direct** player (`WebPlayer`) doesn't yet surface its in-band
+  tracks (upload + online-search still work there).
 
 ### 10.7 The room page + embedded source (the MVP model)
 

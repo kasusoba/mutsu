@@ -115,13 +115,29 @@ export interface SetHiddenMessage {
   hidden: boolean;
 }
 
+/** A text track exposed by the source's own `<video>` (its built-in captions). */
+export interface TrackInfo {
+  /** Index into `video.textTracks` (opaque string id). */
+  id: string;
+  label: string;
+  language: string;
+}
+
+/** Select one of the frame video's embedded caption tracks — read its cues into
+ *  our overlay (or null to turn embedded captions off). §13. */
+export interface SelectTrackMessage {
+  kind: "selectTrack";
+  trackId: string | null;
+}
+
 export type PageToFrameMessage =
   | HelloMessage
   | ApplyMessage
   | OverlayMessage
   | SetSubtitlesMessage
   | SetSubtitleStyleMessage
-  | SetHiddenMessage;
+  | SetHiddenMessage
+  | SelectTrackMessage;
 
 // ── frame → page ────────────────────────────────────────────────────────────
 
@@ -163,12 +179,20 @@ export interface EndedMessage {
   kind: "ended";
 }
 
+/** The frame's video exposes these embedded caption tracks (§13). Reported on
+ *  hook + when the track list changes, so the page can offer them in the picker. */
+export interface TracksMessage {
+  kind: "tracks";
+  tracks: TrackInfo[];
+}
+
 export type FrameToPageMessage =
   | ReadyMessage
   | HookedMessage
   | FrameStatusMessage
   | LocalControlMessage
-  | EndedMessage;
+  | EndedMessage
+  | TracksMessage;
 
 // ── envelope + helpers ──────────────────────────────────────────────────────
 

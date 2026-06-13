@@ -152,8 +152,13 @@ embedded-track picker for top-frame video + full personal style). `srcKind:"site
 `lib/ytPlayer.ts`, `components/YouTubePlayer.svelte`.
 
 **Subtitles — expanded:** directed online search (title + season/episode, sorted by downloads),
-numeric offset input, embedded-track picker (read the source's own caption tracks into our overlay,
-native fallback). Parser shared at `@sixseven/protocol/subtitles`.
+numeric offset input, embedded-track picker (the source's *own* caption tracks, listed under "From
+this site"). The content script reads `<video>.textTracks` in the engaged frame **at any depth** —
+nested-iframe embeds included — reports them up the bridge (`tracks`), and `selectTrack` routes back
+down so the frame reads the chosen track's cues into our overlay (offset/style apply), native
+fallback when cues aren't CORS-readable. Same `SubtitleController`/panel as upload + online search,
+mutually exclusive with them. Works for `embed` + own-tab `site`; the direct `WebPlayer` doesn't yet
+surface its in-band tracks. Parser shared at `@sixseven/protocol/subtitles`.
 
 **Onboarding — built:** guided empty room (pick-a-source / invite / waiting-for-host), live
 extension-presence notice on create/join (`components/ExtensionNotice.svelte`, install link in
@@ -170,8 +175,8 @@ drag-to-reorder, play/remove/clear) with auto-advance when a video ends (players
 `ended` bridge msg) and a room-level autoplay toggle. The picker can add to the queue too. Server:
 `queue`/`currentId`/`autoplay`, control-mode gated. Room-page modes only; own-tab ignores it.
 
-**Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam"). Deferred:
-embedded-track subs for nested-iframe/room (escape hatch accepted).
+**Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam"); (optional) surface
+the direct `WebPlayer`'s own `<video>.textTracks` so `direct` sources also get a "From this site" list.
 
 **Deploy reminder:** new server features (own-tab `observer`, fun-layer `say`/`gif`, M2 mode, subtitle
 ordering) only work once `npx partykit deploy` + `env push` are run — the extension always talks to the

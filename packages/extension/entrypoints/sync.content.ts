@@ -16,11 +16,7 @@
 
 import type { FrameToPageMessage, PageToFrameMessage } from "@sixseven/protocol/bridge";
 import { unwrap, wrap } from "@sixseven/protocol/bridge";
-import {
-  PICKER_TAG,
-  type PickSourceMessage,
-  ROOM_ATTR,
-} from "@sixseven/protocol/picker";
+import { PICKER_TAG, type PickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/sandbox";
 import {
@@ -32,8 +28,8 @@ import {
   partyForUrl,
   removeParty,
 } from "../lib/config";
-import { OwnTabController } from "../lib/ownTab";
 import { Overlay } from "../lib/overlay";
+import { OwnTabController } from "../lib/ownTab";
 import {
   type AreYouRoomReply,
   type DeliverSourceReply,
@@ -51,6 +47,7 @@ const FRAME_KINDS = new Set([
   "setSubtitles",
   "setSubtitleStyle",
   "setHidden",
+  "selectTrack",
 ]);
 
 export default defineContentScript({
@@ -172,6 +169,7 @@ export default defineContentScript({
     let lastCues: Parameters<SubtitleLayer["setCues"]>[0] = null;
     let lastStyle: Parameters<SubtitleLayer["setStyle"]>[0] | null = null;
     let lastHidden = false;
+    let lastSelectedTrack: string | null = null;
 
     const sendUp = (msg: FrameToPageMessage) => parent.postMessage(wrap(msg), "*");
 
@@ -198,8 +196,19 @@ export default defineContentScript({
       hook.allowLocalControl = true;
       if (lastStyle) subtitles.setStyle(lastStyle);
       subtitles.setCues(lastCues);
+      if (lastSelectedTrack != null) applyTrack(lastSelectedTrack);
       if (lastApply) hook.apply(lastApply);
     };
+
+    /** Use an embedded caption track: read its cues into our layer, or fall back
+     *  to the site's native rendering when the cues aren't CORS-readable. */
+    function applyTrack(trackId: string | null) {
+      if (trackId === null) {
+        hook.disableTextTracks();
+        return;
+      }
+      hook.useTextTrack(trackId, (cues) => subtitles.setCues(cues));
+    }
 
     hook.onHookChange = (found) => {
       if (!found) return;
@@ -217,6 +226,10 @@ export default defineContentScript({
     hook.onLocalControl = (intent, time) => sendUp({ kind: "localControl", intent, time });
     hook.onEnded = () => {
       if (engaged) sendUp({ kind: "ended" });
+    };
+    // Surface the source's own caption tracks so the page can offer them (§13).
+    hook.onTextTracksChanged = () => {
+      if (engaged) sendUp({ kind: "tracks", tracks: hook.getTextTracks() });
     };
 
     window.addEventListener("message", (e: MessageEvent) => {
@@ -278,6 +291,10 @@ export default defineContentScript({
             overlay.setHidden(msg.hidden);
             subtitles.setHidden(msg.hidden);
           }
+          break;
+        case "selectTrack":
+          lastSelectedTrack = msg.trackId;
+          if (engaged) applyTrack(msg.trackId);
           break;
       }
     }

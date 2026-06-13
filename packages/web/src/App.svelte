@@ -151,6 +151,7 @@
     b.onReady = () => s.resend();
     b.onLocalControl = onLocalControlReport;
     b.onEnded = onEnded; // embed video ended → playlist auto-advance (§16)
+    b.onTracks = (tracks) => s.setTracks(tracks); // embed's own caption tracks (§13)
 
     // Fun layer (§14): every event echoes back from the server (incl. our own),
     // so all clients render the same. Reactions float; chat goes to the panel +

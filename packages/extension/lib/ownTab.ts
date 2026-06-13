@@ -14,17 +14,22 @@
  */
 
 import type { MemberStatus, SyncMessage } from "@sixseven/protocol";
-import type { FrameToPageMessage, PageToFrameMessage, SubtitleStyle } from "@sixseven/protocol/bridge";
-import { DEFAULT_SUBTITLE_STYLE, unwrap, wrap } from "@sixseven/protocol/bridge";
 import type { Intent } from "@sixseven/protocol";
+import type {
+  FrameToPageMessage,
+  PageToFrameMessage,
+  SubtitleStyle,
+  TrackInfo,
+} from "@sixseven/protocol/bridge";
+import { DEFAULT_SUBTITLE_STYLE, unwrap, wrap } from "@sixseven/protocol/bridge";
 import { parseSubtitles } from "@sixseven/protocol/subtitles";
 import {
   FUN_DEFAULTS,
   FUN_SPEED_MULT,
   type FunSettings,
-  loadFunSettings,
   type OwnTabParty,
   PARTYKIT_HOST,
+  loadFunSettings,
   saveFunSettings,
 } from "./config";
 import { PartyWidget } from "./partyWidget";
@@ -47,6 +52,11 @@ export class OwnTabController {
   );
   private subStyle: SubtitleStyle = { ...DEFAULT_SUBTITLE_STYLE };
   private subLabel: string | null = null;
+  // The source's own caption tracks (§13) + where they live. In own-tab the real
+  // <video> may be in a nested iframe; then the tracks bubble UP and selecting one
+  // routes back DOWN (the nested frame reads its cues into its own subtitle layer).
+  private tracks: TrackInfo[] = [];
+  private tracksNested = false;
   // Fun layer (§14): floating emoji reactions over the site's video.
   private reactions = new ReactionLayer(() => this.hook.videoRect());
   private chatLog: { id: number; name: string; text: string; self: boolean }[] = [];
@@ -114,7 +124,8 @@ export class OwnTabController {
           this.maybeApply();
           this.widget.update({ gate: this.socket.gate });
         },
-        onMembers: () => this.widget.update({ members: this.socket.members, selfId: this.socket.self }),
+        onMembers: () =>
+          this.widget.update({ members: this.socket.members, selfId: this.socket.self }),
         onEvent: (e) => {
           if (e.kind === "reaction") {
             if (this.fun.reactions) this.reactions.spawn(e.text);
@@ -155,8 +166,13 @@ export class OwnTabController {
     };
     this.hook.onStatus = (state, t, dur) => this.reportStatus(state, t, dur);
     this.hook.onLocalControl = (intent, time) => this.socket.control(intent, time);
-    // Surface the source's own caption tracks to the widget as they appear.
-    this.hook.onTextTracksChanged = () => this.widget.update({ tracks: this.hook.getTextTracks() });
+    // Surface the source's own caption tracks to the widget as they appear (this
+    // frame's own <video>). Nested-iframe players report theirs via the bridge.
+    this.hook.onTextTracksChanged = () => {
+      this.tracks = this.hook.getTextTracks();
+      this.tracksNested = false;
+      this.widget.update({ tracks: this.tracks });
+    };
     this.hook.start();
 
     // The real <video> may live in a nested iframe — drive the same frame-tree
@@ -245,6 +261,12 @@ export class OwnTabController {
       case "localControl":
         this.relayLocalControl(msg.intent, msg.time);
         break;
+      case "tracks":
+        // A nested player frame is the real video — its caption tracks live there.
+        this.tracks = msg.tracks;
+        this.tracksNested = true;
+        this.widget.update({ tracks: this.tracks });
+        break;
     }
   };
 
@@ -279,7 +301,7 @@ export class OwnTabController {
   // ── personal subtitles (apply to our layer + broadcast down to nested frames) ─
 
   async loadSubtitleFile(file: File): Promise<void> {
-    this.hook.disableTextTracks(); // an uploaded sub wins over any embedded track
+    this.deselectEmbeddedTrack(); // an uploaded sub wins over any embedded track
     const cues = parseSubtitles(await file.text());
     this.subLabel = file.name;
     this.subtitles.setCues(cues);
@@ -287,11 +309,17 @@ export class OwnTabController {
     this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle, selectedTrack: null });
   }
   clearSubtitles(): void {
-    this.hook.disableTextTracks();
+    this.deselectEmbeddedTrack();
     this.subLabel = null;
     this.subtitles.setCues(null);
     this.broadcastDown({ kind: "setSubtitles", cues: null });
     this.widget.update({ subLabel: null, selectedTrack: null });
+  }
+
+  /** Turn off any embedded track on both the local hook and nested player frames. */
+  private deselectEmbeddedTrack(): void {
+    this.hook.disableTextTracks();
+    if (this.tracksNested) this.broadcastDown({ kind: "selectTrack", trackId: null });
   }
   patchSubStyle(patch: Partial<SubtitleStyle>): void {
     this.subStyle = { ...this.subStyle, ...patch };
@@ -306,7 +334,7 @@ export class OwnTabController {
     return [...results].sort((a, b) => (b.downloads ?? 0) - (a.downloads ?? 0));
   }
   async loadSubResult(r: SubResult): Promise<void> {
-    this.hook.disableTextTracks(); // a chosen online sub wins over any embedded track
+    this.deselectEmbeddedTrack(); // a chosen online sub wins over any embedded track
     const { vtt } = await this.socket.subsDownload(r.id);
     const cues = parseSubtitles(vtt);
     this.subLabel = `${r.title}${r.release ? ` · ${r.release}` : ""}`;
@@ -322,7 +350,17 @@ export class OwnTabController {
       this.clearSubtitles();
       return;
     }
-    const label = this.hook.getTextTracks().find((t) => t.id === id)?.label ?? "captions";
+    const label = this.tracks.find((t) => t.id === id)?.label ?? "captions";
+    if (this.tracksNested) {
+      // The video (and its cues) live in a nested frame; it reads them into its
+      // own subtitle layer. Clear our top-frame uploaded cues and route down.
+      this.subLabel = `site · ${label}`;
+      this.subtitles.setCues(null);
+      this.broadcastDown({ kind: "setSubtitles", cues: null });
+      this.broadcastDown({ kind: "selectTrack", trackId: id });
+      this.widget.update({ subLabel: this.subLabel, subStyle: this.subStyle, selectedTrack: id });
+      return;
+    }
     this.hook.useTextTrack(id, (cues) => {
       if (cues) {
         this.subLabel = `site · ${label}`;

@@ -8,6 +8,7 @@ import {
   DEFAULT_SUBTITLE_STYLE,
   type SubtitleCue,
   type SubtitleStyle,
+  type TrackInfo,
 } from "@sixseven/protocol/bridge";
 import type { PageBridge } from "./bridge";
 import type { RoomClient, SubResult } from "./room.svelte";
@@ -21,6 +22,11 @@ export class SubtitleController {
   results = $state<SubResult[]>([]);
   searching = $state(false);
   error = $state<string | null>(null);
+
+  /** Caption tracks the source's own player exposes (§13), reported by the frame. */
+  embeddedTracks = $state<TrackInfo[]>([]);
+  /** Which embedded track is active (its cues render in the frame's layer), or null. */
+  selectedTrackId = $state<string | null>(null);
 
   constructor(
     private readonly room: RoomClient,
@@ -41,9 +47,45 @@ export class SubtitleController {
   resend(): void {
     this.sendStyle();
     this.sendCues();
+    // A re-hooked frame lost its track selection — replay it so the embed's own
+    // captions come back. Its cues live in the frame, so only the id round-trips.
+    if (this.selectedTrackId !== null) this.bridge.selectTrack(this.selectedTrackId);
+  }
+
+  /** The frame told us which caption tracks the source exposes (§13). */
+  setTracks(tracks: TrackInfo[]): void {
+    this.embeddedTracks = tracks;
+    // If our selected track vanished (video swap), drop the stale selection.
+    if (this.selectedTrackId !== null && !tracks.some((t) => t.id === this.selectedTrackId)) {
+      this.selectedTrackId = null;
+    }
+  }
+
+  /** Turn one of the source's own caption tracks on (or null = off). Mutually
+   *  exclusive with an uploaded/searched file — both feed the one frame layer. */
+  selectEmbeddedTrack(trackId: string | null): void {
+    this.selectedTrackId = trackId;
+    if (trackId === null) {
+      this.activeLabel = null;
+      this.bridge.selectTrack(null);
+      return;
+    }
+    // Embedded cues render in the frame, not here — clear any uploaded cues and
+    // hand the track id down; the frame reads its cues into the same layer.
+    const label = this.embeddedTracks.find((t) => t.id === trackId)?.label || "captions";
+    this.cues = null;
+    this.activeLabel = `site · ${label}`;
+    this.error = null;
+    this.bridge.setSubtitles(null);
+    this.bridge.selectTrack(trackId);
   }
 
   private setCues(cues: SubtitleCue[], label: string): void {
+    // Uploaded/searched subs win over an embedded track — turn it off first.
+    if (this.selectedTrackId !== null) {
+      this.selectedTrackId = null;
+      this.bridge.selectTrack(null);
+    }
     this.cues = cues;
     this.activeLabel = label;
     this.error = cues.length === 0 ? "No cues found in that file." : null;
@@ -51,6 +93,10 @@ export class SubtitleController {
   }
 
   clear(): void {
+    if (this.selectedTrackId !== null) {
+      this.selectedTrackId = null;
+      this.bridge.selectTrack(null);
+    }
     this.cues = null;
     this.activeLabel = null;
     this.sendCues();

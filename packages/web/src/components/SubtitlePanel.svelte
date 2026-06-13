@@ -35,6 +35,24 @@
       {/if}
     </div>
 
+    {#if subs.embeddedTracks.length > 0}
+      <div class="tracks">
+        <span class="lbl">From this site</span>
+        <div class="track-btns">
+          {#each subs.embeddedTracks as t (t.id)}
+            <button
+              class="track"
+              class:on={subs.selectedTrackId === t.id}
+              onclick={() =>
+                subs.selectEmbeddedTrack(subs.selectedTrackId === t.id ? null : t.id)}
+            >
+              {t.label || t.language || "captions"}
+            </button>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
     <button class="wide with-ico" onclick={() => fileInput?.click()}>
       <Upload size={15} /> Upload a .srt / .vtt file
     </button>
@@ -189,6 +207,20 @@
   }
   .wide {
     width: 100%;
+  }
+  .tracks {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .track-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .track {
+    font-size: 12px;
+    padding: 5px 10px;
   }
   .search {
     display: flex;

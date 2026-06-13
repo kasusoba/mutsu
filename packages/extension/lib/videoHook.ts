@@ -9,15 +9,9 @@
  */
 
 import { DRIFT_THRESHOLD, type Intent } from "@sixseven/protocol";
-import { STATUS_REPORT_MS, type SubtitleCue } from "@sixseven/protocol/bridge";
+import { STATUS_REPORT_MS, type SubtitleCue, type TrackInfo } from "@sixseven/protocol/bridge";
 
-/** A text track exposed by the source's own `<video>` (its built-in captions). */
-export interface TrackInfo {
-  /** Index into `video.textTracks` (opaque string id). */
-  id: string;
-  label: string;
-  language: string;
-}
+export type { TrackInfo };
 
 /**
  * Diagnostic logging. Flip to `true`, rebuild, fully reload the room tab, and
