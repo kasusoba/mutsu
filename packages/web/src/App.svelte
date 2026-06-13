@@ -95,6 +95,12 @@
   function onLocalControlReport(intent: Intent, time: number) {
     room?.control(intent, time);
   }
+  // Playlist auto-advance (§16): when our player ends, ask the server for the
+  // next queued item. Gated to controllers; the server dedups via afterId so
+  // multiple viewers ending at once don't skip several.
+  function onEnded() {
+    if (room?.canControl) room.playNext(room.playlistCurrentId);
+  }
 
   // Create a brand-new room: mint a secret, push the capability URL into history
   // (no reload — keeps it a single SPA session), then join with the chosen mode.
@@ -144,6 +150,7 @@
     };
     b.onReady = () => s.resend();
     b.onLocalControl = onLocalControlReport;
+    b.onEnded = onEnded; // embed video ended → playlist auto-advance (§16)
 
     // Fun layer (§14): every event echoes back from the server (incl. our own),
     // so all clients render the same. Reactions float; chat goes to the panel +
@@ -312,8 +319,14 @@
       }
       // YouTube always wins (a YT embed would otherwise arrive tagged "embed").
       const auto = classifySource(url);
-      r.setSource(url, auto === "youtube" ? "youtube" : (e.data.srcKind ?? auto));
-      flashPicker("Source set from the extension picker.", true);
+      const kind = auto === "youtube" ? "youtube" : (e.data.srcKind ?? auto);
+      if (e.data.queue) {
+        r.queueAdd(url, kind);
+        flashPicker("Added to the queue from the extension picker.", true);
+      } else {
+        r.setSource(url, kind);
+        flashPicker("Source set from the extension picker.", true);
+      }
     };
     window.addEventListener("message", onPick);
     return () => {
@@ -459,6 +472,7 @@
             {volume}
             onStatus={onStatusReport}
             onUserControl={onLocalControlReport}
+            {onEnded}
           />
         {:else if sourceKind === "youtube"}
           <YouTubePlayer
@@ -469,6 +483,7 @@
             solo={room.members.length <= 1}
             onStatus={onStatusReport}
             onUserControl={onLocalControlReport}
+            {onEnded}
           />
         {:else}
           <Embed src={room.sync.src} {bridge} />

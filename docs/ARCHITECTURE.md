@@ -100,6 +100,7 @@ Client → server:
 | `skip` | `{ memberId }` | drop a stalled/failed member from the gate (control-mode gated) |
 | `resync` | `{}` | request a fresh `sync` + `gate` snapshot (used on reconnect) |
 | `say` | `{ kind, text }` | ephemeral fun-layer broadcast — `kind` = `reaction`\|`chat`\|`gif`; the server fans it out and forgets it (§12). Rate-limited |
+| `queueAdd` / `queueRemove` / `queueClear` / `playItem` / `queueReorder {id,toIndex}` / `playNext {afterId}` / `setAutoplay {on}` | playlist mutations (§14, control-mode gated). `playNext` auto-advances (`afterId` dedups concurrent ends); `setAutoplay` toggles whether queue items start playing on their own |
 
 Server → client:
 | type | payload | meaning |
@@ -110,6 +111,7 @@ Server → client:
 | `gate` | `{ paused, waitingFor }` | soft buffer gate; play only when `sync.intent==='playing'` AND `gate.paused===false` |
 | `log` | `{ event }` | one appended activity-log event (SPEC §11) |
 | `event` | `{ kind, text, from, name, at }` | a fanned-out fun-layer event (reaction/chat/gif) — ephemeral, never stored (§12) |
+| `playlist` | `{ items, currentId, autoplay }` | the room queue + which item is playing + autoplay flag (§14); broadcast on change + join |
 | `error` | `{ code, message }` | connection refused / action rejected |
 
 **Control acceptance rule (server-enforced):** a `control`/`setSource`/`setMode`/`skip` is
@@ -542,3 +544,25 @@ YouTube's native controls back to the room (`onStateChange` + position-jump dete
 expect-flags suppressing our own apply echoes). **Autoplay:** starts muted so it auto-starts in
 sync with no click (browser policy allows muted autoplay); a "Tap to unmute" pill gets audio.
 Buffering is debounced before it gates the room (a seek/play naturally buffers).
+
+## 14. Playlist
+
+A per-room queue of sources you line up and auto-advance through (room-page modes;
+own-tab is single-source-per-site and ignores it). Server state: `queue: SourceItem[]`
++ `currentId`. Adding the first item to an empty room starts it; `playItem` jumps to one;
+`playNext` advances. All mutations are control-mode gated and reuse the same `applySource`
+path as a manual `setSource` (reset clock/gate, everyone reloads).
+
+**Auto-advance:** each player reports when its video **ends** — `WebPlayer`/`YtPlayer` via an
+`onEnded` callback, embed via a new `ended` bridge message (`VideoHook` 'ended' → up the frame
+tree). The room page then sends `playNext {afterId: currentId}`; the server only advances if
+`currentId` still equals `afterId`, so several viewers ending at once skip exactly one item.
+End of queue → it just stops.
+
+**Autoplay:** a room-level toggle (`setAutoplay`, default on). When on, a queue item that's
+auto-advanced or picked starts `playing` (the buffer gate still holds until everyone's loaded —
+a not-ready client reports stalled → soft-pause); off → it loads paused. A manually-pasted
+`setSource` always loads paused. UI: the Source panel — `+ Queue` adds, an "Up next" list with
+**drag-to-reorder** (`queueReorder {id,toIndex}`), play/remove, an autoplay checkbox, and clear.
+The extension picker can also add to the queue (a "Add to queue" toggle → `PickSourceMessage.queue`).
+Own-tab ignores the playlist (single-source-per-site).

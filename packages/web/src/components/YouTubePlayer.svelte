@@ -14,8 +14,10 @@
     onStatus: (state: MemberStatus, currentTime: number, duration: number) => void;
     /** The viewer's play/pause/seek on YouTube's own controls → relay to the room. */
     onUserControl: (intent: Intent, time: number) => void;
+    /** Video ended → playlist auto-advance (§16). */
+    onEnded?: () => void;
   }
-  const { src, sync, gate, subs, solo, onStatus, onUserControl }: Props = $props();
+  const { src, sync, gate, subs, solo, onStatus, onUserControl, onEnded }: Props = $props();
 
   let mount = $state<HTMLDivElement | null>(null);
   let player = $state<YtPlayer | null>(null);
@@ -54,6 +56,7 @@
               p.onStatus = onStatus;
               p.onUserControl = onUserControl;
               p.onMutedChange = (m) => (muted = m);
+              p.onEnded = () => onEnded?.();
               p.solo = solo;
               p.start();
               player = p;

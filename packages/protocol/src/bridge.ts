@@ -158,11 +158,17 @@ export interface LocalControlMessage {
   time: number;
 }
 
+/** The hooked video reached its end — drives playlist auto-advance (§16). */
+export interface EndedMessage {
+  kind: "ended";
+}
+
 export type FrameToPageMessage =
   | ReadyMessage
   | HookedMessage
   | FrameStatusMessage
-  | LocalControlMessage;
+  | LocalControlMessage
+  | EndedMessage;
 
 // ── envelope + helpers ──────────────────────────────────────────────────────
 

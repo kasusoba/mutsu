@@ -83,6 +83,7 @@ export default defineContentScript({
             kind: "pick-source",
             url: msg.url,
             srcKind: msg.srcKind,
+            queue: msg.queue,
           };
           window.postMessage(pick, window.location.origin);
           const reply: DeliverSourceReply = { ok: true };
@@ -214,6 +215,9 @@ export default defineContentScript({
       if (engaged) sendUp({ kind: "status", state, currentTime, duration });
     };
     hook.onLocalControl = (intent, time) => sendUp({ kind: "localControl", intent, time });
+    hook.onEnded = () => {
+      if (engaged) sendUp({ kind: "ended" });
+    };
 
     window.addEventListener("message", (e: MessageEvent) => {
       const env = e.data as { tag?: unknown; msg?: { kind?: string } } | null;

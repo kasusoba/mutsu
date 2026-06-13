@@ -27,6 +27,7 @@ import {
   type Mode,
   SKIP_GRACE_MS,
   type ServerMessage,
+  type SourceItem,
   type SourceKind,
   encode,
   parseClientMessage,
@@ -62,6 +63,11 @@ interface RoomState {
   log: LogEvent[];
   /** Monotonic join counter — lowest seq = longest-connected (host promotion). */
   seq: number;
+  /** Playlist (§16): queued sources + which one is playing. */
+  queue: SourceItem[];
+  currentId: string | null;
+  /** Whether queue items start playing on their own (continuous playback). */
+  autoplay: boolean;
 }
 
 interface StoredMember {
@@ -91,6 +97,9 @@ function freshState(): RoomState {
     waitingSince: {},
     log: [],
     seq: 0,
+    queue: [],
+    currentId: null,
+    autoplay: true,
   };
 }
 
@@ -111,6 +120,9 @@ export default class RoomServer implements Party.Server {
     const saved = await this.room.storage.get<RoomState>(STORAGE_KEY);
     if (saved) this.s = saved;
     if (!this.s.srcKind) this.s.srcKind = "embed"; // storage predating srcKind
+    if (!this.s.queue) this.s.queue = []; // storage predating the playlist (§16)
+    if (this.s.currentId === undefined) this.s.currentId = null;
+    if (this.s.autoplay === undefined) this.s.autoplay = true;
     // A (re)start drops every socket, but `members` was persisted — so anything
     // left over is a GHOST with no live connection. Prune them, or they sit in
     // presence (and possibly the gate, freezing the clock) forever. Real clients
@@ -255,6 +267,20 @@ export default class RoomServer implements Party.Server {
         return;
       case "say":
         return this.handleSay(sender, msg.kind, msg.text);
+      case "queueAdd":
+        return void this.handleQueueAdd(sender, msg.src, msg.kind, msg.title);
+      case "queueRemove":
+        return void this.handleQueueRemove(sender, msg.id);
+      case "queueClear":
+        return void this.handleQueueClear(sender);
+      case "playItem":
+        return void this.handlePlayItem(sender, msg.id);
+      case "queueReorder":
+        return void this.handleQueueReorder(sender, msg.id, msg.toIndex);
+      case "playNext":
+        return void this.handlePlayNext(sender, msg.afterId);
+      case "setAutoplay":
+        return void this.handleSetAutoplay(sender, msg.on);
     }
   }
 
@@ -321,6 +347,7 @@ export default class RoomServer implements Party.Server {
       this.send(sender, this.syncMessage(Date.now(), false));
       this.send(sender, this.membersMessage());
       this.send(sender, this.gateMessage());
+      this.send(sender, this.playlistMessage());
       return;
     }
 
@@ -352,6 +379,7 @@ export default class RoomServer implements Party.Server {
     this.send(sender, this.syncMessage(Date.now(), false));
     this.send(sender, this.membersMessage());
     this.send(sender, this.gateMessage());
+    this.send(sender, this.playlistMessage());
     for (const event of this.s.log.slice(-20)) this.send(sender, { type: "log", event });
 
     this.broadcastMembers();
@@ -364,12 +392,26 @@ export default class RoomServer implements Party.Server {
     kind?: SourceKind,
   ): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
+    this.s.currentId = null; // a manually-set source isn't a queue item
+    await this.applySource(src, kind, sender.id);
+    this.broadcastPlaylist();
+  }
 
+  /** Apply a new room source (reset clock/gate, everyone reloads). Shared by
+   *  manual setSource and playing a queue item (§16). No permission check. */
+  private async applySource(
+    src: string,
+    kind: SourceKind | undefined,
+    actor: MemberId,
+    play = false,
+  ): Promise<void> {
     const now = Date.now();
     this.s.src = src;
     this.s.srcKind =
       kind === "direct" || kind === "site" || kind === "youtube" ? kind : "embed";
-    this.s.intent = "paused";
+    // Autoplay queue items start `playing`; the buffer gate still holds until
+    // everyone's loaded (a not-ready client reports stalled → soft-pause).
+    this.s.intent = play ? "playing" : "paused";
     this.s.time = 0;
     this.s.rate = 1;
     this.s.updatedAt = now;
@@ -383,11 +425,110 @@ export default class RoomServer implements Party.Server {
       if (m) m.status = "loading";
     }
 
-    this.appendLog({ kind: "setSource", actor: sender.id, detail: src });
+    this.appendLog({ kind: "setSource", actor, detail: src });
     this.broadcastSync();
     this.broadcastMembers();
     this.broadcastGate();
     await this.persist();
+  }
+
+  // ── playlist (§16) ──────────────────────────────────────────────────────────
+
+  private async handleQueueAdd(
+    sender: Party.Connection,
+    src: string,
+    kind?: SourceKind,
+    title?: string,
+  ): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    if (typeof src !== "string" || !src.trim()) return;
+    const item: SourceItem = {
+      id: `q${this.s.seq++}`,
+      src,
+      kind: kind === "direct" || kind === "site" || kind === "youtube" ? kind : "embed",
+      title: typeof title === "string" ? title.slice(0, 200) : undefined,
+    };
+    this.s.queue.push(item);
+    // If nothing is playing yet, start this one.
+    if (!this.s.src) {
+      this.s.currentId = item.id;
+      await this.applySource(item.src, item.kind, sender.id);
+    }
+    this.broadcastPlaylist();
+    await this.persist();
+  }
+
+  private async handleQueueRemove(sender: Party.Connection, id: string): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    this.s.queue = this.s.queue.filter((i) => i.id !== id);
+    if (this.s.currentId === id) this.s.currentId = null;
+    this.broadcastPlaylist();
+    await this.persist();
+  }
+
+  private async handleQueueClear(sender: Party.Connection): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    this.s.queue = [];
+    this.s.currentId = null;
+    this.broadcastPlaylist();
+    await this.persist();
+  }
+
+  private async handlePlayItem(sender: Party.Connection, id: string): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    const item = this.s.queue.find((i) => i.id === id);
+    if (!item) return;
+    this.s.currentId = id;
+    await this.applySource(item.src, item.kind, sender.id, this.s.autoplay);
+    this.broadcastPlaylist();
+  }
+
+  private async handlePlayNext(sender: Party.Connection, afterId?: string | null): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    // Dedup auto-advance from multiple clients: only advance if the item the
+    // sender saw end is still the current one.
+    if (afterId != null && this.s.currentId !== afterId) return;
+    const i = this.s.queue.findIndex((x) => x.id === this.s.currentId);
+    const next = i >= 0 ? this.s.queue[i + 1] : this.s.queue[0];
+    if (!next) return; // end of queue — stop
+    this.s.currentId = next.id;
+    await this.applySource(next.src, next.kind, sender.id, this.s.autoplay);
+    this.broadcastPlaylist();
+  }
+
+  private async handleSetAutoplay(sender: Party.Connection, on: boolean): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    this.s.autoplay = Boolean(on);
+    this.broadcastPlaylist();
+    await this.persist();
+  }
+
+  private async handleQueueReorder(
+    sender: Party.Connection,
+    id: string,
+    toIndex: number,
+  ): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    const from = this.s.queue.findIndex((x) => x.id === id);
+    if (from < 0 || typeof toIndex !== "number") return;
+    const [item] = this.s.queue.splice(from, 1);
+    if (!item) return;
+    const to = Math.max(0, Math.min(this.s.queue.length, Math.floor(toIndex)));
+    this.s.queue.splice(to, 0, item);
+    this.broadcastPlaylist();
+    await this.persist();
+  }
+
+  private playlistMessage(): ServerMessage {
+    return {
+      type: "playlist",
+      items: this.s.queue,
+      currentId: this.s.currentId,
+      autoplay: this.s.autoplay,
+    };
+  }
+  private broadcastPlaylist(): void {
+    this.room.broadcast(encode(this.playlistMessage()));
   }
 
   private async handleControl(

@@ -28,6 +28,7 @@ export interface DeliverSourceMessage {
   type: typeof PICKER_DELIVER;
   url: string;
   srcKind?: "embed" | "direct";
+  queue?: boolean;
 }
 export interface DeliverSourceReply {
   ok: boolean;

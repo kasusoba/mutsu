@@ -61,15 +61,17 @@ async function deliver(url: string, srcKind?: "embed" | "direct"): Promise<void>
     notice("Open your sixseven room page in another tab, then reopen this.", "err");
     return;
   }
+  const queue = $<HTMLInputElement>("queueMode").checked;
   try {
     const reply = (await browser.tabs.sendMessage(tabId, {
       type: PICKER_DELIVER,
       url,
       srcKind,
+      queue,
     })) as DeliverSourceReply | undefined;
     if (reply?.ok) {
       const room = rooms.find((r) => r.tabId === tabId)?.room ?? "room";
-      notice(`Sent to ${room} ✓`, "ok");
+      notice(`${queue ? "Queued in" : "Sent to"} ${room} ✓`, "ok");
     } else {
       notice("Couldn't reach the room tab — is it still open?", "err");
     }
@@ -160,10 +162,13 @@ async function scanActiveTab(): Promise<MediaCandidate[]> {
     return [];
   }
   try {
-    const results = await browser.scripting.executeScript({
-      target: { tabId: active.id, allFrames: true },
-      func: collectFrameCandidates,
-    });
+    const results = await withTimeout(
+      browser.scripting.executeScript({
+        target: { tabId: active.id, allFrames: true },
+        func: collectFrameCandidates,
+      }),
+      8000,
+    );
     const merged = rankCandidates(results.map((r) => (r.result as MediaCandidate[]) ?? []));
     console.debug(`[sixseven] scanned ${active.url} → ${merged.length} candidate(s)`, merged);
     return merged;
@@ -175,6 +180,15 @@ async function scanActiveTab(): Promise<MediaCandidate[]> {
   }
 }
 
+/** Race a promise against a timeout — a frozen/discarded background tab can leave
+ *  `tabs.sendMessage` pending forever, which would hang the whole scan. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]);
+}
+
 async function discoverRooms(): Promise<RoomTab[]> {
   const tabs = await browser.tabs.query({});
   const found: RoomTab[] = [];
@@ -182,12 +196,13 @@ async function discoverRooms(): Promise<RoomTab[]> {
     tabs.map(async (t) => {
       if (!t.id || !/^https?:/i.test(t.url ?? "")) return;
       try {
-        const reply = (await browser.tabs.sendMessage(t.id, {
-          type: PICKER_PING,
-        })) as AreYouRoomReply | undefined;
+        const reply = (await withTimeout(
+          browser.tabs.sendMessage(t.id, { type: PICKER_PING }),
+          1500,
+        )) as AreYouRoomReply | undefined;
         if (reply?.room) found.push({ tabId: t.id, room: reply.room, title: t.title ?? "" });
       } catch {
-        // No content script on that tab (or it's not loaded) — not a room.
+        // No content script, not loaded, or unresponsive (frozen tab) — not a room.
       }
     }),
   );

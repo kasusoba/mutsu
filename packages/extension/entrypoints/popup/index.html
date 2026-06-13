@@ -87,6 +87,15 @@
         border-bottom: 1px solid var(--line);
       }
       .room-bar-label { font-size: 12px; color: var(--muted); margin-right: auto; }
+      .queue-mode {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 12px;
+        font-size: 12px;
+        color: var(--muted);
+        border-bottom: 1px solid var(--line);
+      }
       .rescan {
         font: inherit;
         font-size: 12px;
@@ -424,6 +433,7 @@
         <span class="muted" id="count"></span>
         <button class="rescan" id="rescan" title="Scan this tab again">Rescan</button>
       </div>
+      <label class="queue-mode"><input type="checkbox" id="queueMode" /> Add to the room's queue instead of playing now</label>
       <div class="target" id="targetRow" hidden>
         <label for="room">send to</label>
         <select id="room"></select>

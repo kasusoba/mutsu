@@ -63,6 +63,8 @@ export class VideoHook {
   onStatus: (state: State, currentTime: number, duration: number) => void = () => {};
   onHookChange: (found: boolean) => void = () => {};
   onLocalControl: (intent: Intent, time: number) => void = () => {};
+  /** Fired when the hooked video reaches its end (playlist auto-advance, §16). */
+  onEnded: () => void = () => {};
   /** Fired when the hooked video's embedded text-track list changes. */
   onTextTracksChanged: () => void = () => {};
   private trackCleanup: (() => void) | null = null;
@@ -342,6 +344,8 @@ export class VideoHook {
         this.onLocalControl(v.paused ? "paused" : "playing", v.currentTime);
       }
     });
+
+    on("ended", () => this.onEnded());
 
     // Watch the embedded caption-track list (players add tracks asynchronously).
     const tt = v.textTracks;

@@ -15,6 +15,7 @@ import {
   type MemberId,
   type Mode,
   type SayKind,
+  type SourceItem,
   type SourceKind,
   type SyncMessage,
   parseServerMessage,
@@ -28,6 +29,9 @@ export class RoomClient {
   members = $state<Member[]>([]);
   gate = $state<GateMessage>({ type: "gate", paused: false, waitingFor: [] });
   log = $state<LogEvent[]>([]);
+  playlist = $state<SourceItem[]>([]);
+  playlistCurrentId = $state<string | null>(null);
+  autoplay = $state(true);
 
   /** Ephemeral fun-layer events (§14) — reactions/chat/gif. Transient, so they
    *  flow through a callback the UI subscribes to, not into reactive state. */
@@ -88,6 +92,11 @@ export class RoomClient {
       case "event":
         this.onEvent(msg);
         break;
+      case "playlist":
+        this.playlist = msg.items;
+        this.playlistCurrentId = msg.currentId;
+        this.autoplay = msg.autoplay;
+        break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
         break;
@@ -125,6 +134,29 @@ export class RoomClient {
   /** Fire an ephemeral fun-layer event to the room (§14). */
   say(kind: SayKind, text: string): void {
     this.send({ type: "say", kind, text });
+  }
+
+  // ── playlist (§16) ──────────────────────────────────────────────────────────
+  queueAdd(src: string, kind?: SourceKind, title?: string): void {
+    this.send({ type: "queueAdd", src, kind, title });
+  }
+  queueRemove(id: string): void {
+    this.send({ type: "queueRemove", id });
+  }
+  queueClear(): void {
+    this.send({ type: "queueClear" });
+  }
+  playItem(id: string): void {
+    this.send({ type: "playItem", id });
+  }
+  queueReorder(id: string, toIndex: number): void {
+    this.send({ type: "queueReorder", id, toIndex });
+  }
+  setAutoplay(on: boolean): void {
+    this.send({ type: "setAutoplay", on });
+  }
+  playNext(afterId?: string | null): void {
+    this.send({ type: "playNext", afterId });
   }
 
   // ── subtitle proxy (SPEC §13) ─────────────────────────────────────────────

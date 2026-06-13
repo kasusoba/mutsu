@@ -26,6 +26,7 @@ export class PageBridge {
   onHooked: ((found: boolean) => void) | null = null;
   onStatus: ((state: StatusState, currentTime: number, duration: number) => void) | null = null;
   onLocalControl: ((intent: Intent, time: number) => void) | null = null;
+  onEnded: (() => void) | null = null;
 
   constructor() {
     this.onMessage = (e: MessageEvent) => {
@@ -46,6 +47,9 @@ export class PageBridge {
           break;
         case "localControl":
           this.onLocalControl?.(msg.intent, msg.time);
+          break;
+        case "ended":
+          this.onEnded?.();
           break;
       }
     };

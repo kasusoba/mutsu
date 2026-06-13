@@ -18,8 +18,10 @@
     onStatus: (state: MemberStatus, currentTime: number, duration: number) => void;
     /** A user action on OUR controls (click-to-toggle) → relayed to the room. */
     onUserControl: (intent: Intent, time: number) => void;
+    /** Video ended → playlist auto-advance (§16). */
+    onEnded?: () => void;
   }
-  const { src, sync, gate, subs, solo, muted, volume, onStatus, onUserControl }: Props = $props();
+  const { src, sync, gate, subs, solo, muted, volume, onStatus, onUserControl, onEnded }: Props = $props();
 
   let video = $state<HTMLVideoElement | null>(null);
   let player = $state<WebPlayer | null>(null);
@@ -128,6 +130,7 @@
     p.onSeek = () => {
       seekCount++;
     };
+    p.onEnded = () => onEnded?.();
     p.solo = solo;
     p.start();
     player = p;
