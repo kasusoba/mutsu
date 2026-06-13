@@ -17,7 +17,11 @@
 
 import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@sixseven/protocol";
 
-const HARD_SEEK = 1.5; // YT can't fine-slew playbackRate, so just snap big desync.
+// YT can't fine-slew playbackRate like the direct player, so we DON'T correct
+// small drift at all (that backward yank was the jitter) — only snap a genuine
+// desync, matching WebPlayer's 3s ceiling. The buffer gate keeps steady-state
+// drift well under this, so heartbeats rarely seek.
+const HARD_SEEK = 3.0;
 const SEEK_JUMP = 1.2; // unexpected position jump (s) → the viewer scrubbed.
 const TICK_MS = 250;
 const STALL_DEBOUNCE_MS = 500; // buffering must persist this long before we gate
