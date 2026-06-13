@@ -12,6 +12,7 @@
 import type { GateMessage, Member, MemberId, MemberStatus } from "@sixseven/protocol";
 import { DEFAULT_SUBTITLE_STYLE, type SubtitleStyle } from "@sixseven/protocol/bridge";
 import { browser } from "wxt/browser";
+import { FUN_DEFAULTS, type FunSettings } from "./config";
 import type { GifResult, SubResult } from "./roomSocket";
 import type { TrackInfo } from "./videoHook";
 
@@ -26,6 +27,7 @@ interface WidgetState {
   tracks: TrackInfo[];
   selectedTrack: string | null;
   chat: { id: number; name: string; text: string; self: boolean }[];
+  fun: FunSettings;
 }
 
 interface WidgetOpts {
@@ -49,6 +51,8 @@ interface WidgetOpts {
   onGif: (url: string) => void;
   /** Search GIPHY via the proxy. */
   gifSearch: (query: string) => Promise<GifResult[]>;
+  /** Personal fun-layer display settings changed. */
+  onFunSettings: (s: FunSettings) => void;
 }
 
 type FavGif = GifResult & { q: string };
@@ -87,6 +91,7 @@ export class PartyWidget {
     tracks: [],
     selectedTrack: null,
     chat: [],
+    fun: { ...FUN_DEFAULTS },
   };
 
   constructor(private readonly opts: WidgetOpts) {}
@@ -220,6 +225,15 @@ export class PartyWidget {
     setRange(".sub-box", s.subStyle.background);
     const color = this.$(".sub-color") as HTMLInputElement | null;
     if (color && this.root?.activeElement !== color) color.value = s.subStyle.color;
+
+    const fr = this.$(".fun-react") as HTMLInputElement | null;
+    if (fr) fr.checked = s.fun.reactions;
+    const fg = this.$(".fun-gif") as HTMLInputElement | null;
+    if (fg) fg.checked = s.fun.gifs;
+    const fb = this.$(".fun-bub") as HTMLInputElement | null;
+    if (fb) fb.checked = s.fun.bubbles;
+    const fs = this.$(".fun-spd") as HTMLSelectElement | null;
+    if (fs) fs.value = s.fun.speed;
   }
 
   // ── GIF picker grid ──────────────────────────────────────────────────────────
@@ -364,6 +378,29 @@ export class PartyWidget {
     gifQ?.addEventListener("input", () => {
       if (this.gifTab === "favs") this.renderGifGrid();
     });
+
+    // ── Display (fun-layer) settings ──
+    this.$(".fun-toggle")?.addEventListener("click", () => {
+      const body = this.$(".fun");
+      const t = this.$(".fun-toggle");
+      if (!body) return;
+      const show = (body as HTMLElement).hidden;
+      (body as HTMLElement).hidden = !show;
+      t?.classList.toggle("open", show);
+    });
+    const applyFun = () => {
+      const s: FunSettings = {
+        reactions: (this.$(".fun-react") as HTMLInputElement)?.checked ?? true,
+        gifs: (this.$(".fun-gif") as HTMLInputElement)?.checked ?? true,
+        bubbles: (this.$(".fun-bub") as HTMLInputElement)?.checked ?? true,
+        speed: ((this.$(".fun-spd") as HTMLSelectElement)?.value ?? "normal") as FunSettings["speed"],
+      };
+      this.state.fun = s;
+      this.opts.onFunSettings(s);
+    };
+    for (const sel of [".fun-react", ".fun-gif", ".fun-bub", ".fun-spd"]) {
+      this.$(sel)?.addEventListener("change", applyFun);
+    }
 
     const chatIn = this.$(".chat-in") as HTMLInputElement | null;
     this.$(".chat-form")?.addEventListener("submit", (e) => {
@@ -614,6 +651,14 @@ export class PartyWidget {
   .gtile .gstar { position:absolute; top:3px; right:3px; width:20px; height:20px; padding:0; border:none; border-radius:50%; background:rgba(0,0,0,.6); color:#fff; font-size:11px; cursor:pointer; }
   .gtile .gstar.on { color:#f5a623; }
   .gif-msg { font-size:12px; color:#9aa0b4; padding:4px 0; }
+  button.fun-toggle { width:100%; background:none; border:none; border-radius:0; justify-content:space-between; align-items:center; cursor:pointer; }
+  button.fun-toggle:hover { color:#e7e9ef; }
+  button.fun-toggle.open .caret { transform: rotate(180deg); }
+  .fun[hidden] { display:none; }
+  .fun { padding:0 12px 8px; display:flex; flex-direction:column; gap:5px; font-size:12px; }
+  .fun label { display:flex; align-items:center; gap:6px; color:#e7e9ef; }
+  .fun-speed { display:flex; align-items:center; gap:8px; color:#9aa0b4; }
+  .fun-spd { flex:1; font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:4px 6px; }
   ul { list-style:none; margin:0; padding: 0 12px 8px; display:flex; flex-direction:column; gap:5px; }
   .members li { display:flex; align-items:center; gap:8px; font-size:13px; }
   .mdot { width:8px; height:8px; border-radius:50%; background:#9aa0b4; flex:none; }
@@ -719,6 +764,13 @@ export class PartyWidget {
       <button class="sub-clear">clear</button>
     </div>
     <input class="sub-file" type="file" accept=".srt,.vtt" hidden />
+  </div>
+  <button class="section-title fun-toggle">Display<span class="caret">▾</span></button>
+  <div class="fun" hidden>
+    <label><input type="checkbox" class="fun-react" /> Reactions</label>
+    <label><input type="checkbox" class="fun-gif" /> GIFs</label>
+    <label><input type="checkbox" class="fun-bub" /> Chat bubbles</label>
+    <div class="fun-speed"><span>Linger</span><select class="fun-spd"><option value="fast">Fast</option><option value="normal">Normal</option><option value="slow">Slow</option></select></div>
   </div>
   <div class="foot">
     <button class="hide" title="Hide the widget (controls stay in the popup)">Hide</button>

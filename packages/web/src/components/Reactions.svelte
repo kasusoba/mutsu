@@ -8,13 +8,15 @@
   interface Props {
     /** Active floating reactions (managed by the parent; removed on timeout). */
     reactions: FloatingReaction[];
+    /** Linger multiplier (personal "speed" setting) → scales animation duration. */
+    mult?: number;
   }
-  const { reactions }: Props = $props();
+  const { reactions, mult = 1 }: Props = $props();
 </script>
 
 <!-- Float-up layer only: reactions drift up over the video and fade. The launcher
      lives in the top bar so nothing persistent overlays the video. -->
-<div class="float">
+<div class="float" style="--fun-mult: {mult}">
   {#each reactions as r (r.id)}
     {#if r.gif}
       <img class="r gif" style:left="{r.x}%" src={r.gif} alt="gif" />
@@ -36,7 +38,7 @@
     position: absolute;
     bottom: 8%;
     font-size: 34px;
-    animation: float-up 2.2s ease-out forwards;
+    animation: float-up calc(2.2s * var(--fun-mult, 1)) ease-out forwards;
     will-change: transform, opacity;
   }
   .r.gif {
@@ -44,7 +46,7 @@
     max-height: 160px;
     border-radius: 10px;
     box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
-    animation: gif-float 6s ease-out forwards;
+    animation: gif-float calc(6s * var(--fun-mult, 1)) ease-out forwards;
   }
   @keyframes float-up {
     0% {

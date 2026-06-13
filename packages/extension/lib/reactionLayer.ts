@@ -12,6 +12,8 @@ export class ReactionLayer {
   private chatbox: HTMLDivElement;
   private raf = 0;
   private seq = 0;
+  /** Linger multiplier (personal "speed" setting) — scales lifetimes. */
+  private mult = 1;
 
   constructor(private readonly getRect: () => DOMRect | null) {
     this.host = document.createElement("div");
@@ -20,15 +22,16 @@ export class ReactionLayer {
     this.root.innerHTML = `<style>
       * { box-sizing:border-box; font-family: system-ui, sans-serif; }
       .layer { position:fixed; overflow:hidden; pointer-events:none; }
+      .layer { --fun-mult: 1; }
       .r { position:absolute; bottom:0; font-size:34px; will-change:transform,opacity;
-           animation: up 2.2s ease-out forwards; }
+           animation: up calc(2.2s * var(--fun-mult)) ease-out forwards; }
       @keyframes up {
         0% { transform: translate(-50%,0) scale(.6); opacity:0; }
         15% { transform: translate(-50%,-10px) scale(1.1); opacity:1; }
         100% { transform: translate(-50%,-220px) scale(1); opacity:0; }
       }
       .g { position:absolute; bottom:10%; max-width:160px; max-height:160px; border-radius:10px;
-           box-shadow:0 6px 22px rgba(0,0,0,.5); animation: gfloat 6s ease-out forwards; }
+           box-shadow:0 6px 22px rgba(0,0,0,.5); animation: gfloat calc(6s * var(--fun-mult)) ease-out forwards; }
       @keyframes gfloat {
         0% { transform: translate(-50%,20px) scale(.85); opacity:0; }
         8% { transform: translate(-50%,0) scale(1); opacity:1; }
@@ -38,10 +41,14 @@ export class ReactionLayer {
       .chatbox { position:absolute; left:14px; bottom:14px; display:flex; flex-direction:column;
                  gap:6px; max-width:60%; }
       .cb { align-self:flex-start; padding:6px 11px; border-radius:14px; background:rgba(0,0,0,.72);
-            color:#fff; font-size:13px; line-height:1.35; animation: cbin .2s ease-out, cbout .4s ease-in 5.6s forwards; }
+            color:#fff; font-size:13px; line-height:1.35; animation: cblife calc(6s * var(--fun-mult)) ease forwards; }
       .cb b { color:#9ec1ff; margin-right:4px; }
-      @keyframes cbin { from { opacity:0; transform:translateY(8px); } }
-      @keyframes cbout { to { opacity:0; } }
+      @keyframes cblife {
+        0% { opacity:0; transform:translateY(8px); }
+        4% { opacity:1; transform:translateY(0); }
+        90% { opacity:1; }
+        100% { opacity:0; }
+      }
     </style><div class="layer"><div class="chatbox"></div></div>`;
     this.layer = this.root.querySelector(".layer") as HTMLDivElement;
     this.chatbox = this.root.querySelector(".chatbox") as HTMLDivElement;
@@ -72,13 +79,19 @@ export class ReactionLayer {
     }
   }
 
+  /** Set the linger multiplier (drives animation duration + cleanup timing). */
+  setMult(m: number): void {
+    this.mult = m;
+    this.layer.style.setProperty("--fun-mult", String(m));
+  }
+
   spawn(emoji: string): void {
     const el = document.createElement("span");
     el.className = "r";
     el.textContent = emoji;
     el.style.left = `${8 + Math.random() * 84}%`;
     this.layer.append(el);
-    setTimeout(() => el.remove(), 2300);
+    setTimeout(() => el.remove(), 2300 * this.mult);
   }
 
   /** Float a transient GIF over the video (own-tab). */
@@ -89,7 +102,7 @@ export class ReactionLayer {
     el.alt = "gif";
     el.style.left = `${20 + Math.random() * 60}%`;
     this.layer.append(el);
-    setTimeout(() => el.remove(), 6000);
+    setTimeout(() => el.remove(), 6000 * this.mult);
   }
 
   /** Float a transient chat bubble over the video (own-tab). */
@@ -100,7 +113,7 @@ export class ReactionLayer {
     b.textContent = name;
     el.append(b, document.createTextNode(text));
     this.chatbox.append(el);
-    setTimeout(() => el.remove(), 6000);
+    setTimeout(() => el.remove(), 6000 * this.mult);
   }
 
   destroy(): void {
