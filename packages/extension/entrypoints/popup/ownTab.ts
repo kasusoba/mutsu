@@ -160,12 +160,14 @@ function renderEntry(root: HTMLElement, active: ActiveTab | null, nickname: stri
 
       <label class="ot-field"><span>Your name</span>
         <input id="otNick" class="ot-input" placeholder="e.g. alice" value="${escapeHtml(nickname)}" autocomplete="off" />
+        <span class="ot-fieldhint">Shown to everyone — used whether you start or join.</span>
       </label>
 
-      <button id="otStart" class="ot-btn primary block" ${active ? "" : "disabled"}>Start a new party here</button>
+      <div class="ot-divider"><span>start a party</span></div>
+      <button id="otStart" class="ot-btn primary block" ${active ? "" : "disabled"}>Start a new party on this tab</button>
       ${active ? "" : '<div class="ot-hint">Open a page with a video to start a party.</div>'}
 
-      <div class="ot-divider"><span>or join a friend's party</span></div>
+      <div class="ot-divider"><span>or join a party</span></div>
       <div class="ot-join">
         <input id="otCode" class="ot-input" placeholder="paste room code" autocomplete="off" />
         <button id="otJoin" class="ot-btn">Join</button>
