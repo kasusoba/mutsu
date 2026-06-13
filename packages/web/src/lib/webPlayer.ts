@@ -12,8 +12,8 @@
  * Content-neutral: plays whatever URL it's handed; no extraction/forging (§3).
  */
 
-import { type GateMessage, type MemberStatus, type SyncMessage } from "@sixseven/protocol";
-import { STATUS_REPORT_MS } from "@sixseven/protocol/bridge";
+import type { GateMessage, MemberStatus, SyncMessage } from "@sixseven/protocol";
+import { STATUS_REPORT_MS, type SubtitleCue, type TrackInfo } from "@sixseven/protocol/bridge";
 
 const STALL_DEBOUNCE_MS = 700;
 const SELF_SEEK_QUIET_MS = 1000;
@@ -32,6 +32,9 @@ export class WebPlayer {
   onSeek: (from: number, to: number) => void = () => {};
   /** Fired when the video reaches its end (drives playlist auto-advance, §16). */
   onEnded: () => void = () => {};
+  /** Fired when the element's own caption tracks appear/change (§13). The same-
+   *  origin element exposes them directly — no bridge, unlike the embed path. */
+  onTextTracksChanged: () => void = () => {};
   /** True when this viewer is alone: don't force realtime, just let it play. */
   solo = false;
 
@@ -42,6 +45,7 @@ export class WebPlayer {
   private last: { intent: SyncMessage["intent"]; gatePaused: boolean } | null = null;
   private poll: ReturnType<typeof setInterval> | null = null;
   private readonly bound: Array<[keyof HTMLMediaElementEventMap, EventListener]> = [];
+  private ttBound: EventListener | null = null;
 
   constructor(private readonly v: HTMLVideoElement) {}
 
@@ -61,6 +65,12 @@ export class WebPlayer {
       this.state = "failed";
       this.emit();
     });
+    // In-band tracks (HLS / fragmented mp4) arrive asynchronously — surface them
+    // as they appear so the panel can list them under "From this site".
+    const notify = () => this.onTextTracksChanged();
+    this.v.textTracks.addEventListener("addtrack", notify);
+    this.v.textTracks.addEventListener("removetrack", notify);
+    this.ttBound = notify;
     this.poll = setInterval(() => this.tick(), STATUS_REPORT_MS);
   }
 
@@ -175,10 +185,92 @@ export class WebPlayer {
     return this.v.currentTime;
   }
 
+  // ── embedded caption tracks (the element's own subtitles, §13) ──────────────
+  // Same-origin, so we read cues directly — no bridge. Mirrors VideoHook's logic.
+
+  /** The element's subtitle/caption text tracks. */
+  getTextTracks(): TrackInfo[] {
+    const out: TrackInfo[] = [];
+    const tt = this.v.textTracks;
+    for (let i = 0; i < tt.length; i++) {
+      const t = tt[i];
+      if (!t) continue;
+      if (t.kind && t.kind !== "subtitles" && t.kind !== "captions") continue;
+      out.push({
+        id: String(i),
+        label: t.label || t.language || `Track ${i + 1}`,
+        language: t.language || "",
+      });
+    }
+    return out;
+  }
+
+  /** Turn off every embedded track (so a native-rendered one doesn't show under
+   *  an uploaded/searched sub). */
+  disableTextTracks(): void {
+    const tt = this.v.textTracks;
+    for (let i = 0; i < tt.length; i++) {
+      const t = tt[i];
+      if (t) t.mode = "disabled";
+    }
+  }
+
+  /**
+   * Select an embedded track: set it `hidden` (loads cues without native
+   * rendering) and read the cues so OUR overlay draws them (offset/style apply).
+   * If the cues can't be read, fall back to native rendering (`showing`) and
+   * report null.
+   */
+  useTextTrack(id: string | null, onCues: (cues: SubtitleCue[] | null) => void): void {
+    const tt = this.v.textTracks;
+    for (let i = 0; i < tt.length; i++) {
+      const t = tt[i];
+      if (t) t.mode = "disabled";
+    }
+    if (id === null) {
+      onCues(null);
+      return;
+    }
+    const track = tt[Number(id)];
+    if (!track) {
+      onCues(null);
+      return;
+    }
+    track.mode = "hidden";
+    let tries = 0;
+    const read = () => {
+      if (this.v.textTracks[Number(id)] !== track) return; // track list changed
+      const cues = track.cues;
+      if (cues?.length) {
+        const arr: SubtitleCue[] = [];
+        for (let i = 0; i < cues.length; i++) {
+          const c = cues[i] as VTTCue;
+          arr.push({
+            start: c.startTime,
+            end: c.endTime,
+            text: (c.text || "").replace(/<[^>]+>/g, ""),
+          });
+        }
+        onCues(arr);
+      } else if (tries++ < 30) {
+        setTimeout(read, 100);
+      } else {
+        track.mode = "showing"; // can't read cues → let the player render natively
+        onCues(null);
+      }
+    };
+    read();
+  }
+
   destroy(): void {
     this.clearStall();
     if (this.poll) clearInterval(this.poll);
     for (const [name, fn] of this.bound) this.v.removeEventListener(name, fn);
     this.bound.length = 0;
+    if (this.ttBound) {
+      this.v.textTracks.removeEventListener("addtrack", this.ttBound);
+      this.v.textTracks.removeEventListener("removetrack", this.ttBound);
+      this.ttBound = null;
+    }
   }
 }

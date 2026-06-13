@@ -28,6 +28,17 @@ export class SubtitleController {
   /** Which embedded track is active (its cues render in the frame's layer), or null. */
   selectedTrackId = $state<string | null>(null);
 
+  /**
+   * Direct same-origin player hook (set by DirectPlayer). When present, embedded-
+   * track selection reads cues HERE — there's no iframe/bridge for a `direct`
+   * source — and the read cues flow through our normal `cues` overlay path. For
+   * `embed`/`site` sources this stays null and selection routes over the bridge.
+   */
+  directTracks: {
+    use: (id: string, onCues: (cues: SubtitleCue[] | null) => void) => void;
+    disable: () => void;
+  } | null = null;
+
   constructor(
     private readonly room: RoomClient,
     private readonly bridge: PageBridge,
@@ -62,30 +73,45 @@ export class SubtitleController {
   }
 
   /** Turn one of the source's own caption tracks on (or null = off). Mutually
-   *  exclusive with an uploaded/searched file — both feed the one frame layer. */
+   *  exclusive with an uploaded/searched file. */
   selectEmbeddedTrack(trackId: string | null): void {
     this.selectedTrackId = trackId;
     if (trackId === null) {
       this.activeLabel = null;
-      this.bridge.selectTrack(null);
+      this.cues = null;
+      if (this.directTracks) this.directTracks.disable();
+      else this.bridge.selectTrack(null);
+      this.sendCues();
       return;
     }
-    // Embedded cues render in the frame, not here — clear any uploaded cues and
-    // hand the track id down; the frame reads its cues into the same layer.
     const label = this.embeddedTracks.find((t) => t.id === trackId)?.label || "captions";
-    this.cues = null;
     this.activeLabel = `site · ${label}`;
     this.error = null;
-    this.bridge.setSubtitles(null);
-    this.bridge.selectTrack(trackId);
+    if (this.directTracks) {
+      // Direct same-origin player: read the track's cues into our own overlay
+      // (DirectPlayer renders `cues`). Null = the element showed it natively.
+      this.directTracks.use(trackId, (cues) => {
+        this.cues = cues;
+        this.sendCues();
+      });
+    } else {
+      // Embed/site: cues render in the frame — clear uploaded cues and route down.
+      this.cues = null;
+      this.bridge.setSubtitles(null);
+      this.bridge.selectTrack(trackId);
+    }
+  }
+
+  /** Drop any active embedded track (both the bridge and direct paths). */
+  private deselectTrack(): void {
+    if (this.selectedTrackId === null) return;
+    this.selectedTrackId = null;
+    if (this.directTracks) this.directTracks.disable();
+    else this.bridge.selectTrack(null);
   }
 
   private setCues(cues: SubtitleCue[], label: string): void {
-    // Uploaded/searched subs win over an embedded track — turn it off first.
-    if (this.selectedTrackId !== null) {
-      this.selectedTrackId = null;
-      this.bridge.selectTrack(null);
-    }
+    this.deselectTrack(); // uploaded/searched subs win over an embedded track
     this.cues = cues;
     this.activeLabel = label;
     this.error = cues.length === 0 ? "No cues found in that file." : null;
@@ -93,10 +119,7 @@ export class SubtitleController {
   }
 
   clear(): void {
-    if (this.selectedTrackId !== null) {
-      this.selectedTrackId = null;
-      this.bridge.selectTrack(null);
-    }
+    this.deselectTrack();
     this.cues = null;
     this.activeLabel = null;
     this.sendCues();

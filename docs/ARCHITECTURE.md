@@ -443,9 +443,12 @@ State additions: `stalled: Set<id>`, `intent: 'playing'|'paused'`, `skipped: Set
   cues into **our own overlay layer** (so the same offset/position/style apply) — or, if the cues
   aren't CORS-readable, falls back to the player's native rendering. Mutually exclusive with an
   uploaded/searched file (selecting one clears the other); the same `SubtitleController` drives all
-  three sources. **Scope:** embedded tracks come via the bridge, so they work for `embed` + own-tab
-  `site` sources; the same-origin **direct** player (`WebPlayer`) doesn't yet surface its in-band
-  tracks (upload + online-search still work there).
+  three sources. **Scope:** `embed` + own-tab `site` sources surface tracks over the bridge; the
+  same-origin **direct** player (`WebPlayer`) does it without a bridge — it reads its own
+  `<video>.textTracks` directly (`getTextTracks`/`useTextTrack`/`disableTextTracks`), and the
+  controller's `directTracks` hook reads the chosen track's cues straight into the `cues` overlay
+  `DirectPlayer` already renders. So all three player kinds (embed/site/direct) now list "From this
+  site"; only YouTube (no element access) doesn't.
 
 ### 10.7 The room page + embedded source (the MVP model)
 

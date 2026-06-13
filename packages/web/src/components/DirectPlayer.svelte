@@ -131,6 +131,16 @@
       seekCount++;
     };
     p.onEnded = () => onEnded?.();
+    // Surface the element's own caption tracks (§13) — same-origin, so the
+    // controller reads cues directly here (no bridge, unlike embeds).
+    p.onTextTracksChanged = () => subs?.setTracks(p.getTextTracks());
+    if (subs) {
+      subs.directTracks = {
+        use: (id, cb) => p.useTextTrack(id, cb),
+        disable: () => p.disableTextTracks(),
+      };
+      subs.setTracks(p.getTextTracks());
+    }
     p.solo = solo;
     p.start();
     player = p;
@@ -158,6 +168,12 @@
       clearInterval(tick);
       p.destroy();
       player = null;
+      // Drop our track wiring so switching away from a direct source doesn't
+      // leave a stale "From this site" list or a dangling reader.
+      if (subs?.directTracks) {
+        subs.directTracks = null;
+        subs.setTracks([]);
+      }
     };
   });
 
