@@ -13,7 +13,8 @@
     "typecheck": "wxt prepare && tsc --noEmit"
   },
   "dependencies": {
-    "@sixseven/protocol": "workspace:*"
+    "@sixseven/protocol": "workspace:*",
+    "partysocket": "^1.0.3"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

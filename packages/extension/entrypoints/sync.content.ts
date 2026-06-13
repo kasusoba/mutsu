@@ -23,6 +23,16 @@ import {
 } from "@sixseven/protocol/picker";
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/sandbox";
+import {
+  MSG_GET_STATE,
+  MSG_SET_WIDGET_HIDDEN,
+  MSG_START_OWNTAB,
+  MSG_STOP_OWNTAB,
+  PARTIES_KEY,
+  partyForUrl,
+  removeParty,
+} from "../lib/config";
+import { OwnTabController } from "../lib/ownTab";
 import { Overlay } from "../lib/overlay";
 import {
   type AreYouRoomReply,
@@ -80,6 +90,67 @@ export default defineContentScript({
         }
         return; // not ours — let other listeners (if any) handle it
       });
+
+      // Own-tab watch party (§11): if this tab is an active party source, become
+      // the controller — own the WS, hook the site's own <video>, show the
+      // widget. No web room page involved. Driven by chrome.storage (written by
+      // the popup) plus direct popup messages for start/stop/hide.
+      let ownTab: OwnTabController | null = null;
+      // Synchronous guard: start is async (awaits storage), and the popup both
+      // writes storage AND messages us on create — without this, both calls slip
+      // past an `if (ownTab)` check before `ownTab` is set and we'd spin up two
+      // controllers/sockets (the duplicate "alice" members).
+      let starting = false;
+      const stopOwnTab = () => {
+        ownTab?.destroy();
+        ownTab = null;
+      };
+      const leaveOwnTab = async () => {
+        const p = await partyForUrl(location.href);
+        if (p) await removeParty(p.sourceUrl);
+        stopOwnTab();
+      };
+      const startOwnTab = async () => {
+        if (ownTab || starting) return;
+        starting = true;
+        try {
+          const p = await partyForUrl(location.href);
+          if (!p || ownTab) return;
+          ownTab = new OwnTabController(p, () => void leaveOwnTab());
+          ownTab.start();
+        } finally {
+          starting = false;
+        }
+      };
+      browser.runtime.onMessage.addListener((raw: unknown) => {
+        const m = raw as { type?: string; hidden?: boolean } | null;
+        if (!m || typeof m !== "object") return;
+        if (m.type === MSG_START_OWNTAB) {
+          startOwnTab();
+          return Promise.resolve({ ok: true });
+        }
+        if (m.type === MSG_STOP_OWNTAB) {
+          stopOwnTab();
+          return Promise.resolve({ ok: true });
+        }
+        if (m.type === MSG_SET_WIDGET_HIDDEN) {
+          ownTab?.setWidgetHidden(Boolean(m.hidden));
+          return Promise.resolve({ ok: true });
+        }
+        if (m.type === MSG_GET_STATE) {
+          return Promise.resolve(ownTab ? ownTab.getState() : null);
+        }
+        return;
+      });
+      // The popup may create/join a party for this tab while it's already open.
+      browser.storage.onChanged.addListener((changes, area) => {
+        if (area !== "local" || !changes[PARTIES_KEY]) return;
+        partyForUrl(location.href).then((p) => {
+          if (p && !ownTab) startOwnTab();
+          else if (!p && ownTab) stopOwnTab();
+        });
+      });
+      startOwnTab();
       return;
     }
 

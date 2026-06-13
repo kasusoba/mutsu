@@ -473,3 +473,35 @@ or forge headers (see Non-goals).
 ### 10.6 Identity
 - Nickname typed on join, stored in `localStorage` (remembered next time). No accounts.
 - Auto color/avatar derived from the nickname.
+
+## 11. Own-tab watch party (extension-native)
+
+A second party surface, **fully driven by the extension** — no web room page involved.
+It's for watching on the *actual* streaming site (in your own tab), including sites that
+refuse to be framed. The only backend is the same PartyKit relay (content-neutral clock).
+
+**The principle: the connection lives with the video.** In room-page mode the room page owns
+the WebSocket because the video is on that page. In own-tab mode the video is in *your own tab*,
+so the **source tab's content script** owns the socket and is the room member. Close any other
+tab → sync is unaffected; close the source tab → you leave the party (correct). No MV3
+service-worker is involved (a tab can hold a socket indefinitely; an idle SW can't).
+
+**Flow (room codes, no invite links — nothing external touches our state):**
+- **Start** (popup → "Watch together on this tab"): mint a short **code**, connect, hook the
+  site's `<video>`, show the widget. The code is BOTH the room name and the capability
+  (~41 bits; gates casual guessing). The creator's content script `setSource(location.href, "site")`
+  so joiners know what to open.
+- **Join** (popup → enter code): the popup connects briefly as an **`observer`** (read-only,
+  not a presence member) to read the room's source URL, shows "Now watching X — [Open & join]",
+  then opens that page; its content script reads `chrome.storage` and joins as the real member.
+
+**Reuse:** `VideoHook` (drift/gate/echo/gesture), the frame-tree bridge (the player may be a
+nested iframe — same relay as the room page), host/open mode, the buffer gate, the protocol.
+**No injected video controls** (the site has its own); native play/pause/seek are relayed via the
+existing gesture-gated `localControl`. The only in-page UI is the **widget** (`partyWidget.ts`):
+a Shadow-DOM floating bubble, draggable + edge-magnetic, hideable (controls also mirror in the
+popup). Source-of-truth coherence is preserved by URL match: a tab only engages if its URL matches
+the room's source; a member on a different video shows as "not on the source", never silently synced.
+
+Code: `lib/roomSocket.ts` (framework-agnostic client), `lib/ownTab.ts` (top-frame controller),
+`lib/partyWidget.ts`, `lib/config.ts` (party storage + code), `entrypoints/popup/ownTab.ts`.

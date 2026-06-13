@@ -53,6 +53,40 @@
         align-items: center;
         gap: 10px;
       }
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .tab {
+        flex: 1;
+        font: inherit;
+        font-size: 13px;
+        padding: 9px 8px;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .tab:hover { color: var(--text); }
+      .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+      .panel {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+      .panel[hidden] { display: none; }
+      #herePanel { overflow: auto; }
+      .room-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .room-bar-label { font-size: 12px; color: var(--muted); margin-right: auto; }
       .rescan {
         font: inherit;
         font-size: 12px;
@@ -77,6 +111,11 @@
         align-items: center;
         gap: 8px;
         background: var(--panel);
+      }
+      /* `.target { display:flex }` would otherwise beat the `hidden` attribute,
+         leaving an empty room <select> visible when no room tab is found. */
+      .target[hidden] {
+        display: none;
       }
       .target label {
         color: var(--muted);
@@ -194,6 +233,160 @@
       button.send:hover {
         border-color: var(--accent);
       }
+      /* ── own-tab "watch together" section ── */
+      .section-sep {
+        padding: 8px 12px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .section-sub {
+        display: block;
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 11px;
+        color: var(--muted);
+        opacity: 0.75;
+        margin-top: 2px;
+      }
+      /* own-tab section */
+      .ot-mode {
+        display: inline-block;
+        align-self: flex-start;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        padding: 2px 7px;
+        border-radius: 999px;
+      }
+      .ot-desc {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .ot-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .ot-fieldhint {
+        font-size: 11px;
+        color: var(--muted);
+        opacity: 0.8;
+      }
+      .ot-btn.block {
+        width: 100%;
+        text-align: center;
+      }
+      .ot-divider {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--muted);
+        margin: 2px 0;
+      }
+      .ot-divider::before,
+      .ot-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+      .ot-found {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .ot-found b {
+        color: var(--text);
+      }
+      .ot-card {
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .ot-row {
+        display: flex;
+        align-items: center;
+      }
+      .ot-title {
+        font-weight: 600;
+      }
+      .ot-code {
+        margin-left: auto;
+        font: 700 14px ui-monospace, monospace;
+        letter-spacing: 1px;
+        color: var(--accent);
+      }
+      .ot-status {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .ot-members {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 13px;
+      }
+      .ot-members li {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .md {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex: none;
+      }
+      .md.ready { background: var(--good); }
+      .md.stalled { background: var(--warn); }
+      .md.failed { background: var(--bad); }
+      .ot-input {
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 9px;
+        width: 100%;
+      }
+      .ot-btn {
+        font: inherit;
+        font-size: 13px;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 7px 10px;
+        cursor: pointer;
+      }
+      .ot-btn:hover:not(:disabled) { border-color: var(--accent); }
+      .ot-btn:disabled { opacity: 0.5; cursor: default; }
+      .ot-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+      .ot-btn.danger { color: var(--bad); }
+      .ot-actions { display: flex; gap: 6px; }
+      .ot-actions .danger { margin-left: auto; }
+      .ot-or { text-align: center; font-size: 11px; color: var(--muted); }
+      .ot-join { display: flex; gap: 6px; }
+      .ot-join .ot-input { flex: 1; }
+      .ot-join-result { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+      .ot-now b { color: var(--text); }
+      .ot-hint { font-size: 11px; color: var(--muted); }
       #notice {
         padding: 7px 12px;
         font-size: 12px;
@@ -215,20 +408,32 @@
   <body>
     <header>
       <span class="brand">sixseven</span>
-      <span class="head-right">
+    </header>
+    <div class="tabs" role="tablist">
+      <button class="tab" id="tabHere" data-tab="here">Watch on this page</button>
+      <button class="tab" id="tabRoom" data-tab="room">Send to a room</button>
+    </div>
+
+    <div class="panel" id="herePanel">
+      <div id="ownTab"></div>
+    </div>
+
+    <div class="panel" id="roomPanel" hidden>
+      <div class="room-bar">
+        <span class="room-bar-label">Videos on this page</span>
         <span class="muted" id="count"></span>
         <button class="rescan" id="rescan" title="Scan this tab again">Rescan</button>
-      </span>
-    </header>
-    <div class="target" id="targetRow" hidden>
-      <label for="room">send to</label>
-      <select id="room"></select>
-    </div>
-    <div id="list"></div>
-    <div id="notice"></div>
-    <div class="manual">
-      <input id="manualUrl" type="text" placeholder="…or paste an embed/source URL" />
-      <button class="send" id="manualSend">send</button>
+      </div>
+      <div class="target" id="targetRow" hidden>
+        <label for="room">send to</label>
+        <select id="room"></select>
+      </div>
+      <div id="list"></div>
+      <div id="notice"></div>
+      <div class="manual">
+        <input id="manualUrl" type="text" placeholder="…or paste an embed/source URL" />
+        <button class="send" id="manualSend">send</button>
+      </div>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>

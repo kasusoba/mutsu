@@ -76,16 +76,28 @@ export interface JoinMessage {
    * already has a mode, changed live via `setMode`/`passControl` (SPEC §8).
    */
   mode?: Mode;
+  /**
+   * Observer join: receive room state (welcome/sync/members/gate/log) but DON'T
+   * count as a presence member — no `members` entry, no joined/left log, never
+   * holds the buffer gate, can't issue privileged actions. Used by the own-tab
+   * popup to peek a room's current source before the user is on the source tab
+   * (the real member is the source tab's content script). See ARCHITECTURE §11.
+   */
+  observer?: boolean;
 }
 
 /**
- * How a source is rendered (SPEC §15 P4):
+ * How a source is rendered (SPEC §15 P4 / own-tab §11):
  * - `embed`  : a framable page → loaded in an `<iframe>`, hooked by the extension.
  * - `direct` : a raw media URL (HLS `.m3u8` / a video file) → played in our own
  *   `<video>` (hls.js) on the room page. Content-neutral: it plays whatever URL
  *   it's given; it does NOT extract streams from pages or forge headers (§3).
+ * - `site`   : own-tab mode (§11) — `src` is the PAGE URL where the video lives.
+ *   No room page / iframe: each member opens that URL in their own tab and the
+ *   extension hooks the site's native `<video>` there. The URL is metadata
+ *   ("open this to watch"), not a stream — same "move the URL + clock" model.
  */
-export type SourceKind = "embed" | "direct";
+export type SourceKind = "embed" | "direct" | "site";
 
 /** Privileged (control-mode gated): pick the source everyone loads (SPEC §12). */
 export interface SetSourceMessage {

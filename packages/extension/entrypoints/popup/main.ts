@@ -21,6 +21,7 @@ import {
   rankCandidates,
 } from "../../lib/picker";
 import { icon } from "./icons";
+import { initOwnTab } from "./ownTab";
 
 interface RoomTab {
   tabId: number;
@@ -234,7 +235,33 @@ async function refresh(): Promise<void> {
 
 rescanBtn.addEventListener("click", refresh);
 
+const TAB_KEY = "sixseven:popupTab";
+
+/** Two modes, one at a time: own-tab "watch here" vs the send-to-room picker. */
+async function initTabs(forced?: "here" | "room"): Promise<void> {
+  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>(".tab"));
+  const panels: Record<string, HTMLElement> = {
+    here: $("herePanel"),
+    room: $("roomPanel"),
+  };
+  const select = (name: string) => {
+    for (const t of tabs) t.classList.toggle("active", t.dataset.tab === name);
+    for (const [key, el] of Object.entries(panels)) el.hidden = key !== name;
+    browser.storage.local.set({ [TAB_KEY]: name });
+  };
+  for (const t of tabs) t.addEventListener("click", () => select(t.dataset.tab ?? "here"));
+  const saved = (await browser.storage.local.get(TAB_KEY))[TAB_KEY];
+  select(forced ?? (saved === "room" ? "room" : "here"));
+}
+
 async function main(): Promise<void> {
+  // If this tab is already in an own-tab party, open on "Watch here" so the user
+  // sees it; otherwise fall back to the last-used tab.
+  const inParty = await initOwnTab().catch((e) => {
+    console.warn("[sixseven] own-tab init failed", e);
+    return false;
+  });
+  initTabs(inParty ? "here" : undefined).catch((e) => console.warn("[sixseven] tabs init failed", e));
   await refresh();
   // Players (and room pages) often mount their <video>/attribute asynchronously,
   // after the popup's first scan. If we came up empty, retry once shortly — this
