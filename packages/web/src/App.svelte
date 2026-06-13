@@ -7,6 +7,7 @@
     PanelRightClose,
     PanelRightOpen,
     Share2,
+    SmilePlus,
     Users,
     X,
   } from "lucide-svelte";
@@ -17,7 +18,10 @@
   import Embed from "./components/Embed.svelte";
   import YouTubePlayer from "./components/YouTubePlayer.svelte";
   import Join from "./components/Join.svelte";
+  import Chat from "./components/Chat.svelte";
+  import GifPicker from "./components/GifPicker.svelte";
   import Members from "./components/Members.svelte";
+  import Reactions from "./components/Reactions.svelte";
   import SourcePanel from "./components/SourcePanel.svelte";
   import SubtitlePanel from "./components/SubtitlePanel.svelte";
   import { isPickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
@@ -141,9 +145,79 @@
     b.onReady = () => s.resend();
     b.onLocalControl = onLocalControlReport;
 
+    // Fun layer (§14): every event echoes back from the server (incl. our own),
+    // so all clients render the same. Reactions float; chat goes to the panel +
+    // briefly floats as a bubble.
+    r.onEvent = (e) => {
+      if (e.kind === "reaction") spawnReaction(e.text);
+      else if (e.kind === "gif") spawnGif(e.text);
+      else if (e.kind === "chat") addChat(e.name, e.text, e.from === r.self);
+    };
+
     bridge = b;
     room = r;
     subs = s;
+  }
+
+  // ── reactions + gifs (float-up) ─────────────────────────────────────────────
+  let reactions = $state<{ id: number; x: number; emoji?: string; gif?: string }[]>([]);
+  let funSeq = 0;
+  function spawnReaction(emoji: string) {
+    if (!fun.reactions) return;
+    const id = funSeq++;
+    const x = 8 + Math.random() * 84;
+    reactions = [...reactions, { id, emoji, x }];
+    setTimeout(() => {
+      reactions = reactions.filter((r) => r.id !== id);
+    }, 2300 * funMult);
+  }
+  function spawnGif(url: string) {
+    if (!fun.gifs) return;
+    const id = funSeq++;
+    const x = 12 + Math.random() * 60;
+    reactions = [...reactions, { id, gif: url, x }];
+    setTimeout(() => {
+      reactions = reactions.filter((r) => r.id !== id);
+    }, 6000 * funMult);
+  }
+
+  // ── chat (sidebar panel + transient bubbles over the player) ────────────────
+  let chatLog = $state<{ id: number; name: string; text: string; self: boolean }[]>([]);
+  let chatBubbles = $state<{ id: number; name: string; text: string }[]>([]);
+  let sideTab = $state<"chat" | "activity">("chat");
+  let reactOpen = $state(false);
+  const REACT_EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "😢", "🎉"];
+
+  // Personal fun-layer display settings (§14) — how YOU see reactions/gifs/chat
+  // bubbles. Not synced; you still receive everything, this only gates display.
+  type FunSettings = { reactions: boolean; gifs: boolean; bubbles: boolean; speed: "fast" | "normal" | "slow" };
+  const FUN_KEY = "sixseven:funSettings";
+  function loadFun(): FunSettings {
+    try {
+      return { reactions: true, gifs: true, bubbles: true, speed: "normal", ...JSON.parse(localStorage.getItem(FUN_KEY) ?? "{}") };
+    } catch {
+      return { reactions: true, gifs: true, bubbles: true, speed: "normal" };
+    }
+  }
+  let fun = $state<FunSettings>(loadFun());
+  const SPEED_MULT = { fast: 0.5, normal: 1, slow: 1.9 } as const;
+  const funMult = $derived(SPEED_MULT[fun.speed]);
+  function setFun<K extends keyof FunSettings>(k: K, v: FunSettings[K]) {
+    fun = { ...fun, [k]: v };
+    try {
+      localStorage.setItem(FUN_KEY, JSON.stringify(fun));
+    } catch {
+      /* non-fatal */
+    }
+  }
+  function addChat(name: string, text: string, self: boolean) {
+    const id = funSeq++;
+    chatLog = [...chatLog, { id, name, text, self }].slice(-100);
+    if (!fun.bubbles) return; // chat still shows in the panel; just no float
+    chatBubbles = [...chatBubbles, { id, name, text }];
+    setTimeout(() => {
+      chatBubbles = chatBubbles.filter((b) => b.id !== id);
+    }, 6000 * funMult);
   }
 
   // Forward the latest server truth into the iframe (SPEC §4). Only when the
@@ -303,6 +377,35 @@
         <span class="dot {room.connected ? 'on' : 'off'}" title={room.connected ? 'connected' : 'reconnecting…'}></span>
         <span class="room-name" title="Room">{loc.room}</span>
         <span class="spacer"></span>
+        <div class="react-wrap">
+          <button class="tb" class:on={reactOpen} onclick={() => (reactOpen = !reactOpen)} disabled={!room.sync?.src} title="React">
+            <SmilePlus size={16} /> React
+          </button>
+          {#if reactOpen}
+            <div class="react-pop">
+              <div class="emoji-row">
+                {#each REACT_EMOJIS as e (e)}
+                  <button class="react-emoji" onclick={() => room?.say('reaction', e)}>{e}</button>
+                {/each}
+              </div>
+              <GifPicker {room} onSend={(url) => room?.say('gif', url)} />
+              <div class="fun-settings">
+                <span class="fs-title">Show over video</span>
+                <label><input type="checkbox" checked={fun.reactions} onchange={(e) => setFun('reactions', e.currentTarget.checked)} /> Reactions</label>
+                <label><input type="checkbox" checked={fun.gifs} onchange={(e) => setFun('gifs', e.currentTarget.checked)} /> GIFs</label>
+                <label><input type="checkbox" checked={fun.bubbles} onchange={(e) => setFun('bubbles', e.currentTarget.checked)} /> Chat bubbles</label>
+                <div class="fs-speed">
+                  <span>Linger</span>
+                  <select value={fun.speed} onchange={(e) => setFun('speed', e.currentTarget.value as 'fast' | 'normal' | 'slow')}>
+                    <option value="fast">Fast</option>
+                    <option value="normal">Normal</option>
+                    <option value="slow">Slow</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          {/if}
+        </div>
         <button class="tb" onclick={copyInvite} title="Copy the invite link">
           <Share2 size={16} /> Invite
         </button>
@@ -428,13 +531,33 @@
             />
           </div>
         {/if}
+
+        {#if room.sync?.src}
+          <Reactions {reactions} mult={funMult} />
+        {/if}
+
+        {#if chatBubbles.length}
+          <div class="chat-bubbles" style="--fun-mult: {funMult}">
+            {#each chatBubbles as b (b.id)}
+              <div class="bubble-msg"><span class="bn">{b.name}</span> {b.text}</div>
+            {/each}
+          </div>
+        {/if}
       </div>
     </main>
 
     {#if sidebarOpen}
       <aside>
         <Members {room} onInvite={copyInvite} />
-        <ActivityLog {room} />
+        <div class="side-tabs">
+          <button class:on={sideTab === 'chat'} onclick={() => (sideTab = 'chat')}>Chat</button>
+          <button class:on={sideTab === 'activity'} onclick={() => (sideTab = 'activity')}>Activity</button>
+        </div>
+        {#if sideTab === 'chat'}
+          <Chat {room} messages={chatLog} />
+        {:else}
+          <ActivityLog {room} />
+        {/if}
       </aside>
     {/if}
   </div>
@@ -499,6 +622,74 @@
   }
   .tb.icon-only {
     padding: 6px 8px;
+  }
+  .react-wrap {
+    position: relative;
+  }
+  .react-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  }
+  .emoji-row {
+    display: flex;
+    gap: 2px;
+  }
+  .fun-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .fun-settings .fs-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .fun-settings label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+  }
+  .fs-speed {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .fs-speed select {
+    flex: 1;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 6px;
+  }
+  .react-emoji {
+    background: none;
+    border: none;
+    border-radius: 999px;
+    padding: 4px 6px;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .react-emoji:hover {
+    background: var(--panel-2);
+    transform: scale(1.15);
   }
   .tb.on {
     border-color: var(--accent);
@@ -673,5 +864,66 @@
     border-left: 1px solid var(--line);
     background: var(--panel);
     min-height: 0;
+  }
+  .side-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--line);
+  }
+  .side-tabs button {
+    flex: 1;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 8px;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .side-tabs button.on {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+  .chat-bubbles {
+    position: absolute;
+    left: 12px;
+    bottom: 84px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-width: 60%;
+    pointer-events: none;
+  }
+  .bubble-msg {
+    align-self: flex-start;
+    padding: 6px 11px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #fff;
+    font-size: 13px;
+    line-height: 1.35;
+    animation: bubble-life calc(6s * var(--fun-mult, 1)) ease forwards;
+  }
+  .bubble-msg .bn {
+    font-weight: 700;
+    color: #9ec1ff;
+    margin-right: 4px;
+  }
+  @keyframes bubble-life {
+    0% {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    4% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    90% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
   }
 </style>

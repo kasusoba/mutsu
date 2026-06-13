@@ -9,10 +9,11 @@
  * the site has its own; we only show party state.
  */
 
-import type { GateMessage, LogEvent, Member, MemberId, MemberStatus } from "@sixseven/protocol";
+import type { GateMessage, Member, MemberId, MemberStatus } from "@sixseven/protocol";
 import { DEFAULT_SUBTITLE_STYLE, type SubtitleStyle } from "@sixseven/protocol/bridge";
 import { browser } from "wxt/browser";
-import type { SubResult } from "./roomSocket";
+import { FUN_DEFAULTS, type FunSettings } from "./config";
+import type { GifResult, SubResult } from "./roomSocket";
 import type { TrackInfo } from "./videoHook";
 
 interface WidgetState {
@@ -20,12 +21,13 @@ interface WidgetState {
   members: Member[];
   gate: GateMessage;
   selfId: MemberId | null;
-  log: LogEvent[];
   playerStatus: MemberStatus;
   subLabel: string | null;
   subStyle: SubtitleStyle;
   tracks: TrackInfo[];
   selectedTrack: string | null;
+  chat: { id: number; name: string; text: string; self: boolean }[];
+  fun: FunSettings;
 }
 
 interface WidgetOpts {
@@ -41,7 +43,22 @@ interface WidgetOpts {
     loadResult: (r: SubResult) => Promise<void>;
     selectTrack: (id: string | null) => void;
   };
+  /** Send an emoji reaction to the room (§14). */
+  onReact: (emoji: string) => void;
+  /** Send a chat message to the room (§14). */
+  onChat: (text: string) => void;
+  /** Send a GIF (by URL) to the room (§14). */
+  onGif: (url: string) => void;
+  /** Search GIPHY via the proxy. */
+  gifSearch: (query: string) => Promise<GifResult[]>;
+  /** Personal fun-layer display settings changed. */
+  onFunSettings: (s: FunSettings) => void;
 }
+
+type FavGif = GifResult & { q: string };
+const GIF_FAV_KEY = "sixseven:gifFavs";
+
+const REACT_EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "😢", "🎉"];
 
 const POS_KEY = "sixseven:widgetPos";
 const HIDDEN_KEY = "sixseven:widgetHidden";
@@ -59,17 +76,22 @@ export class PartyWidget {
   private expanded = false;
   private dragging = false;
   private moved = false;
+  // GIF picker state (§14).
+  private gifTab: "search" | "favs" = "search";
+  private gifResults: GifResult[] = [];
+  private gifFavs: FavGif[] = [];
   private state: WidgetState = {
     connected: false,
     members: [],
     gate: { type: "gate", paused: false, waitingFor: [] },
     selfId: null,
-    log: [],
     playerStatus: "loading",
     subLabel: null,
     subStyle: { ...DEFAULT_SUBTITLE_STYLE },
     tracks: [],
     selectedTrack: null,
+    chat: [],
+    fun: { ...FUN_DEFAULTS },
   };
 
   constructor(private readonly opts: WidgetOpts) {}
@@ -88,6 +110,8 @@ export class PartyWidget {
     await this.restorePosition();
     const hidden = (await browser.storage.local.get(HIDDEN_KEY))[HIDDEN_KEY];
     if (hidden) this.setHidden(true);
+    const savedFavs = (await browser.storage.local.get(GIF_FAV_KEY))[GIF_FAV_KEY];
+    if (Array.isArray(savedFavs)) this.gifFavs = savedFavs as FavGif[];
     this.render();
   }
 
@@ -116,7 +140,7 @@ export class PartyWidget {
   private render(): void {
     if (!this.root) return;
     const s = this.state;
-    const dot = this.$(".dot");
+    const dot = this.$(".head .dot");
     if (dot) dot.className = `dot ${s.connected ? "on" : "off"}`;
 
     const status = this.$(".status");
@@ -125,8 +149,15 @@ export class PartyWidget {
     const count = this.$(".mcount");
     if (count) count.textContent = String(s.members.length);
 
+    // Bubble: keep it clean — show the member count only when there's more than
+    // you, and the warning dot only when disconnected.
     const bubbleCount = this.$(".bubble-count");
-    if (bubbleCount) bubbleCount.textContent = String(s.members.length || "");
+    if (bubbleCount) {
+      bubbleCount.textContent = String(s.members.length);
+      (bubbleCount as HTMLElement).hidden = s.members.length <= 1;
+    }
+    const bdot = this.$(".bdot");
+    if (bdot) (bdot as HTMLElement).hidden = s.connected;
 
     const list = this.$(".members");
     if (list) {
@@ -138,13 +169,14 @@ export class PartyWidget {
         .join("");
     }
 
-    const log = this.$(".log");
-    if (log) {
-      log.innerHTML = s.log
-        .slice(-30)
-        .reverse()
-        .map((e) => `<li>${esc(describe(e, s.members))}</li>`)
+    const chat = this.$(".chat");
+    if (chat) {
+      const atBottom = chat.scrollTop + chat.clientHeight >= chat.scrollHeight - 4;
+      chat.innerHTML = s.chat
+        .slice(-50)
+        .map((m) => `<li class="${m.self ? "me" : ""}"><span class="cn">${esc(m.name)}</span>${esc(m.text)}</li>`)
         .join("");
+      if (atBottom) chat.scrollTop = chat.scrollHeight;
     }
 
     const subLabel = this.$(".sub-label");
@@ -193,6 +225,64 @@ export class PartyWidget {
     setRange(".sub-box", s.subStyle.background);
     const color = this.$(".sub-color") as HTMLInputElement | null;
     if (color && this.root?.activeElement !== color) color.value = s.subStyle.color;
+
+    const fr = this.$(".fun-react") as HTMLInputElement | null;
+    if (fr) fr.checked = s.fun.reactions;
+    const fg = this.$(".fun-gif") as HTMLInputElement | null;
+    if (fg) fg.checked = s.fun.gifs;
+    const fb = this.$(".fun-bub") as HTMLInputElement | null;
+    if (fb) fb.checked = s.fun.bubbles;
+    const fs = this.$(".fun-spd") as HTMLSelectElement | null;
+    if (fs) fs.value = s.fun.speed;
+  }
+
+  // ── GIF picker grid ──────────────────────────────────────────────────────────
+
+  private renderGifGrid(): void {
+    const grid = this.$(".gif-grid");
+    if (!grid) return;
+    let items: GifResult[];
+    if (this.gifTab === "favs") {
+      if (!this.gifFavs.length) {
+        grid.innerHTML = `<div class="gif-msg">No favorites yet — star a GIF from Search.</div>`;
+        return;
+      }
+      const f = (this.$(".gif-q") as HTMLInputElement | null)?.value.trim().toLowerCase() ?? "";
+      items = f ? this.gifFavs.filter((g) => g.q.toLowerCase().includes(f)) : this.gifFavs;
+    } else {
+      items = this.gifResults;
+    }
+    grid.replaceChildren();
+    for (const g of items) {
+      const tile = document.createElement("div");
+      tile.className = "gtile";
+      const send = document.createElement("button");
+      send.className = "gsend";
+      send.title = "Send";
+      const img = document.createElement("img");
+      img.src = g.preview;
+      img.alt = "gif";
+      img.loading = "lazy";
+      send.append(img);
+      send.addEventListener("click", () => this.opts.onGif(g.url));
+      const star = document.createElement("button");
+      star.className = "gstar";
+      star.textContent = "★";
+      star.classList.toggle("on", this.gifFavs.some((f) => f.url === g.url));
+      star.addEventListener("click", () => this.toggleGifFav(g));
+      tile.append(send, star);
+      grid.append(tile);
+    }
+  }
+
+  private toggleGifFav(g: GifResult): void {
+    const exists = this.gifFavs.some((f) => f.url === g.url);
+    const q = (this.$(".gif-q") as HTMLInputElement | null)?.value.trim() ?? "";
+    this.gifFavs = exists
+      ? this.gifFavs.filter((f) => f.url !== g.url)
+      : [{ ...g, q }, ...this.gifFavs].slice(0, 60);
+    browser.storage.local.set({ [GIF_FAV_KEY]: this.gifFavs });
+    this.renderGifGrid();
   }
 
   private statusText(): string {
@@ -214,6 +304,7 @@ export class PartyWidget {
     bubble?.addEventListener("click", () => {
       if (this.moved) return; // a drag, not a click
       this.expanded = !this.expanded;
+      if (this.expanded) this.positionPanel();
       if (panel) panel.style.display = this.expanded ? "flex" : "none";
     });
     this.$(".copy")?.addEventListener("click", async () => {
@@ -235,6 +326,91 @@ export class PartyWidget {
       this.setHidden(true);
     });
     this.$(".leave")?.addEventListener("click", () => this.opts.onLeave());
+
+    for (const b of this.root?.querySelectorAll<HTMLButtonElement>(".react") ?? []) {
+      b.addEventListener("click", () => this.opts.onReact(b.textContent ?? ""));
+    }
+
+    this.$(".sub-toggle")?.addEventListener("click", () => {
+      const body = this.$(".subs");
+      const t = this.$(".sub-toggle");
+      if (!body) return;
+      const show = (body as HTMLElement).hidden;
+      (body as HTMLElement).hidden = !show;
+      t?.classList.toggle("open", show);
+    });
+
+    // ── GIF picker ──
+    this.$(".gif-toggle")?.addEventListener("click", () => {
+      const body = this.$(".gifs");
+      const t = this.$(".gif-toggle");
+      if (!body) return;
+      const show = (body as HTMLElement).hidden;
+      (body as HTMLElement).hidden = !show;
+      t?.classList.toggle("open", show);
+    });
+    const gifQ = this.$(".gif-q") as HTMLInputElement | null;
+    const setGifTab = (tab: "search" | "favs") => {
+      this.gifTab = tab;
+      this.$(".gt-search")?.classList.toggle("on", tab === "search");
+      this.$(".gt-favs")?.classList.toggle("on", tab === "favs");
+      if (gifQ) gifQ.placeholder = tab === "search" ? "Search GIFs…" : "Filter favorites…";
+      this.renderGifGrid();
+    };
+    this.$(".gt-search")?.addEventListener("click", () => setGifTab("search"));
+    this.$(".gt-favs")?.addEventListener("click", () => setGifTab("favs"));
+    const runGifSearch = async () => {
+      const q = gifQ?.value.trim();
+      if (!q) return;
+      const grid = this.$(".gif-grid");
+      if (grid) grid.innerHTML = `<div class="gif-msg">Searching…</div>`;
+      try {
+        this.gifResults = await this.opts.gifSearch(q);
+        this.renderGifGrid();
+      } catch {
+        if (grid) grid.innerHTML = `<div class="gif-msg">Search failed.</div>`;
+      }
+    };
+    this.$(".gif-go")?.addEventListener("click", runGifSearch);
+    gifQ?.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter" && this.gifTab === "search") runGifSearch();
+    });
+    gifQ?.addEventListener("input", () => {
+      if (this.gifTab === "favs") this.renderGifGrid();
+    });
+
+    // ── Display (fun-layer) settings ──
+    this.$(".fun-toggle")?.addEventListener("click", () => {
+      const body = this.$(".fun");
+      const t = this.$(".fun-toggle");
+      if (!body) return;
+      const show = (body as HTMLElement).hidden;
+      (body as HTMLElement).hidden = !show;
+      t?.classList.toggle("open", show);
+    });
+    const applyFun = () => {
+      const s: FunSettings = {
+        reactions: (this.$(".fun-react") as HTMLInputElement)?.checked ?? true,
+        gifs: (this.$(".fun-gif") as HTMLInputElement)?.checked ?? true,
+        bubbles: (this.$(".fun-bub") as HTMLInputElement)?.checked ?? true,
+        speed: ((this.$(".fun-spd") as HTMLSelectElement)?.value ?? "normal") as FunSettings["speed"],
+      };
+      this.state.fun = s;
+      this.opts.onFunSettings(s);
+    };
+    for (const sel of [".fun-react", ".fun-gif", ".fun-bub", ".fun-spd"]) {
+      this.$(sel)?.addEventListener("change", applyFun);
+    }
+
+    const chatIn = this.$(".chat-in") as HTMLInputElement | null;
+    this.$(".chat-form")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const t = chatIn?.value.trim();
+      if (t) {
+        this.opts.onChat(t);
+        if (chatIn) chatIn.value = "";
+      }
+    });
 
     // Subtitles (personal): file upload + offset/position.
     const fileInput = this.$(".sub-file") as HTMLInputElement | null;
@@ -363,6 +539,24 @@ export class PartyWidget {
   };
 
   /** Snap horizontally to the nearest screen edge with a little glide. */
+  /** Open the panel toward screen center so it's never clipped off-edge: to the
+   *  right of the bubble when it's on the left half (and vice-versa), top-aligned
+   *  when near the top (extends down) or bottom-aligned when near the bottom. */
+  private positionPanel(): void {
+    const host = this.host;
+    const panel = this.$(".panel");
+    if (!host || !panel) return;
+    const r = host.getBoundingClientRect();
+    const onLeft = r.left + r.width / 2 < window.innerWidth / 2;
+    const onTop = r.top + r.height / 2 < window.innerHeight / 2;
+    Object.assign(panel.style, {
+      left: onLeft ? "60px" : "auto",
+      right: onLeft ? "auto" : "60px",
+      top: onTop ? "0" : "auto",
+      bottom: onTop ? "auto" : "0",
+    });
+  }
+
   private snapToEdge(): void {
     const host = this.host;
     if (!host) return;
@@ -400,22 +594,29 @@ export class PartyWidget {
   :host { all: initial; }
   * { box-sizing: border-box; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   .bubble {
-    width: 52px; height: 52px; border-radius: 50%;
-    background: #171922; border: 1px solid #2a2e3d; color: #e7e9ef;
+    width: 50px; height: 50px; border-radius: 50%;
+    background: radial-gradient(circle at 50% 35%, #20232f, #14161d);
+    border: 1px solid #343a4a; color: #e7e9ef;
     display: grid; place-items: center; cursor: grab; position: relative;
-    box-shadow: 0 8px 28px rgba(0,0,0,.5); user-select: none; touch-action: none;
+    box-shadow: 0 6px 22px rgba(0,0,0,.55); user-select: none; touch-action: none;
+    transition: border-color .15s, transform .1s;
   }
-  .bubble:active { cursor: grabbing; }
-  .bubble .logo { font-weight: 800; font-size: 11px; letter-spacing: .5px; color: #6c7cff; }
+  .bubble:hover { border-color: #6c7cff; }
+  .bubble:active { cursor: grabbing; transform: scale(.96); }
+  .bubble .logo { margin-left: 2px; }
   .bubble-count {
-    position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px;
+    position: absolute; top: -3px; right: -3px; min-width: 18px; height: 18px;
     padding: 0 5px; border-radius: 999px; background: #6c7cff; color: #fff;
     font-size: 11px; font-weight: 700; display: grid; place-items: center;
+    border: 2px solid #14161d;
   }
-  .bdot { position:absolute; bottom: 2px; right: 2px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #171922; }
+  .bubble-count[hidden] { display: none; }
+  .bdot { position:absolute; bottom: 1px; right: 1px; width: 12px; height: 12px;
+          border-radius: 50%; background: #f5a623; border: 2px solid #14161d; }
+  .bdot[hidden] { display: none; }
   .panel {
-    display: none; flex-direction: column; gap: 0; position: absolute; bottom: 0; right: 60px;
-    width: 280px; max-height: 70vh; background: #171922; color: #e7e9ef;
+    display: none; flex-direction: column; gap: 0; position: absolute;
+    width: 290px; max-height: 72vh; background: #171922; color: #e7e9ef;
     border: 1px solid #2a2e3d; border-radius: 14px; overflow-y: auto;
     box-shadow: 0 16px 48px rgba(0,0,0,.55);
   }
@@ -425,7 +626,39 @@ export class PartyWidget {
   .dot.on { background:#41d18a; } .dot.off { background:#f5a623; }
   .head .code { margin-left:auto; font: 700 13px ui-monospace, monospace; letter-spacing:1px; color:#6c7cff; }
   .status { padding: 8px 12px; font-size: 12px; color: #9aa0b4; border-bottom: 1px solid #2a2e3d; }
+  .reacts { display: flex; flex-wrap: wrap; gap: 2px; padding: 6px 10px; border-bottom: 1px solid #2a2e3d; }
+  .react { background: none; border: none; font-size: 20px; line-height: 1; padding: 3px 5px; cursor: pointer; border-radius: 8px; }
+  .react:hover { background: #1f2230; transform: scale(1.15); }
   .section-title { padding: 8px 12px 4px; font-size: 11px; text-transform: uppercase; letter-spacing:.5px; color:#9aa0b4; display:flex; gap:6px; }
+  button.sub-toggle { width:100%; background:none; border:none; border-radius:0; justify-content:space-between; align-items:center; cursor:pointer; }
+  button.sub-toggle:hover { color:#e7e9ef; }
+  .subs[hidden] { display:none; }
+  .caret { transition: transform .15s; }
+  button.sub-toggle.open .caret, button.gif-toggle.open .caret { transform: rotate(180deg); }
+  button.gif-toggle { width:100%; background:none; border:none; border-radius:0; justify-content:space-between; align-items:center; cursor:pointer; }
+  button.gif-toggle:hover { color:#e7e9ef; }
+  .gifs[hidden] { display:none; }
+  .gifs { padding: 0 12px 8px; display:flex; flex-direction:column; gap:6px; }
+  .gif-tabs { display:flex; gap:4px; }
+  .gt { flex:1; background:none; border:none; border-bottom:2px solid transparent; border-radius:0; color:#9aa0b4; font-size:12px; padding:4px; cursor:pointer; }
+  .gt.on { color:#e7e9ef; border-bottom-color:#6c7cff; }
+  .gif-row { display:flex; gap:6px; }
+  .gif-q { flex:1; min-width:0; font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; }
+  .gif-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; max-height:200px; overflow:auto; }
+  .gtile { position:relative; aspect-ratio:1; }
+  .gtile .gsend { width:100%; height:100%; padding:0; border:none; border-radius:8px; overflow:hidden; background:#0e0f13; cursor:pointer; }
+  .gtile img { width:100%; height:100%; object-fit:cover; display:block; }
+  .gtile .gstar { position:absolute; top:3px; right:3px; width:20px; height:20px; padding:0; border:none; border-radius:50%; background:rgba(0,0,0,.6); color:#fff; font-size:11px; cursor:pointer; }
+  .gtile .gstar.on { color:#f5a623; }
+  .gif-msg { font-size:12px; color:#9aa0b4; padding:4px 0; }
+  button.fun-toggle { width:100%; background:none; border:none; border-radius:0; justify-content:space-between; align-items:center; cursor:pointer; }
+  button.fun-toggle:hover { color:#e7e9ef; }
+  button.fun-toggle.open .caret { transform: rotate(180deg); }
+  .fun[hidden] { display:none; }
+  .fun { padding:0 12px 8px; display:flex; flex-direction:column; gap:5px; font-size:12px; }
+  .fun label { display:flex; align-items:center; gap:6px; color:#e7e9ef; }
+  .fun-speed { display:flex; align-items:center; gap:8px; color:#9aa0b4; }
+  .fun-spd { flex:1; font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:4px 6px; }
   ul { list-style:none; margin:0; padding: 0 12px 8px; display:flex; flex-direction:column; gap:5px; }
   .members li { display:flex; align-items:center; gap:8px; font-size:13px; }
   .mdot { width:8px; height:8px; border-radius:50%; background:#9aa0b4; flex:none; }
@@ -435,6 +668,12 @@ export class PartyWidget {
   .mstat{font-size:11px; color:#9aa0b4;}
   .log { max-height: 110px; overflow:auto; }
   .log li { font-size:12px; color:#c7cad6; }
+  .chat { max-height: 120px; overflow:auto; }
+  .chat li { font-size:12px; color:#e7e9ef; word-break:break-word; }
+  .chat li .cn { font-weight:700; color:#6c7cff; margin-right:4px; }
+  .chat li.me .cn { color:#41d18a; }
+  .chat-form { display:flex; gap:6px; padding:0 12px 8px; }
+  .chat-in { flex:1; min-width:0; font:inherit; font-size:12px; color:#e7e9ef; background:#0e0f13; border:1px solid #2a2e3d; border-radius:6px; padding:5px 8px; }
   .subs { padding: 0 12px 8px; display:flex; flex-direction:column; gap:6px; }
   .sub-row { display:flex; align-items:center; gap:8px; }
   .sub-label { font-size:11px; color:#9aa0b4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
@@ -476,12 +715,20 @@ export class PartyWidget {
 <div class="panel">
   <div class="head"><span class="dot off"></span><span class="logo">sixseven</span><span class="code">${esc(this.opts.code)}</span></div>
   <div class="status">connecting…</div>
+  <div class="reacts">${REACT_EMOJIS.map((e) => `<button class="react">${e}</button>`).join("")}</div>
   <div class="section-title">Members <span class="mcount">0</span></div>
   <ul class="members"></ul>
-  <div class="section-title">Activity</div>
-  <ul class="log"></ul>
-  <div class="section-title">Subtitles</div>
-  <div class="subs">
+  <div class="section-title">Chat</div>
+  <ul class="chat"></ul>
+  <form class="chat-form"><input class="chat-in" type="text" placeholder="Message…" maxlength="500" /><button class="chat-send">Send</button></form>
+  <button class="section-title gif-toggle">GIF<span class="caret">▾</span></button>
+  <div class="gifs" hidden>
+    <div class="gif-tabs"><button class="gt gt-search on">Search</button><button class="gt gt-favs">★ Favs</button></div>
+    <div class="gif-row"><input class="gif-q" type="text" placeholder="Search GIFs…" /><button class="gif-go">Go</button></div>
+    <div class="gif-grid"></div>
+  </div>
+  <button class="section-title sub-toggle">Subtitles<span class="caret">▾</span></button>
+  <div class="subs" hidden>
     <div class="sub-row">
       <button class="sub-upload">Upload .srt / .vtt</button>
       <span class="sub-label">no subtitles</span>
@@ -518,6 +765,13 @@ export class PartyWidget {
     </div>
     <input class="sub-file" type="file" accept=".srt,.vtt" hidden />
   </div>
+  <button class="section-title fun-toggle">Display<span class="caret">▾</span></button>
+  <div class="fun" hidden>
+    <label><input type="checkbox" class="fun-react" /> Reactions</label>
+    <label><input type="checkbox" class="fun-gif" /> GIFs</label>
+    <label><input type="checkbox" class="fun-bub" /> Chat bubbles</label>
+    <div class="fun-speed"><span>Linger</span><select class="fun-spd"><option value="fast">Fast</option><option value="normal">Normal</option><option value="slow">Slow</option></select></div>
+  </div>
   <div class="foot">
     <button class="hide" title="Hide the widget (controls stay in the popup)">Hide</button>
     <button class="copy">Copy code</button>
@@ -529,25 +783,4 @@ export class PartyWidget {
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
-}
-
-function nameOf(id: string | undefined, members: Member[]): string {
-  if (!id) return "someone";
-  return members.find((m) => m.id === id)?.name ?? "someone";
-}
-
-function describe(e: LogEvent, members: Member[]): string {
-  switch (e.kind) {
-    case "joined": return `${e.detail ?? nameOf(e.actor, members)} joined`;
-    case "left": return `${e.detail ?? nameOf(e.actor, members)} left`;
-    case "played": return `${nameOf(e.actor, members)} pressed play`;
-    case "paused": return `${nameOf(e.actor, members)} pressed pause`;
-    case "setSource": return `${nameOf(e.actor, members)} set the source`;
-    case "skipped": return `${nameOf(e.actor, members)} skipped ${nameOf(e.target, members)}`;
-    case "autoSkipped": return `${nameOf(e.target, members)} was auto-skipped`;
-    case "passedControl": return `${nameOf(e.actor, members)} gave host to ${nameOf(e.target, members)}`;
-    case "modeChanged": return `mode → ${e.detail}`;
-    case "hostPromoted": return `${nameOf(e.target, members)} promoted to host`;
-    default: return e.kind;
-  }
 }

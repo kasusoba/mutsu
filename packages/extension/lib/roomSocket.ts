@@ -12,12 +12,14 @@
 
 import {
   type ClientMessage,
+  type EventMessage,
   type GateMessage,
   type Intent,
   type LogEvent,
   type Member,
   type MemberId,
   type Mode,
+  type SayKind,
   type SourceKind,
   type SyncMessage,
   parseServerMessage,
@@ -42,6 +44,7 @@ export interface RoomSocketHandlers {
   onGate?: (gate: GateMessage) => void;
   onLog?: (event: LogEvent) => void;
   onConnected?: (connected: boolean) => void;
+  onEvent?: (e: EventMessage) => void;
 }
 
 export class RoomSocket {
@@ -108,6 +111,9 @@ export class RoomSocket {
           this.h.onLog?.(msg.event);
         }
         break;
+      case "event":
+        this.h.onEvent?.(msg);
+        break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
         break;
@@ -138,6 +144,9 @@ export class RoomSocket {
   }
   resync(): void {
     this.send({ type: "resync" });
+  }
+  say(kind: SayKind, text: string): void {
+    this.send({ type: "say", kind, text });
   }
 
   // ── subtitle proxy (SPEC §13) — member-gated by the room secret ─────────────
@@ -173,10 +182,22 @@ export class RoomSocket {
   subsDownload(id: string): Promise<{ vtt: string }> {
     return this.proxy("subs.download", { id });
   }
+  gifSearch(query: string): Promise<{ results: GifResult[] }> {
+    return this.proxy("gif.search", { query });
+  }
 
   destroy(): void {
     this.socket.close();
   }
+}
+
+/** A GIF search hit from the proxy (§14). */
+export interface GifResult {
+  id: string;
+  url: string;
+  preview: string;
+  width: number;
+  height: number;
 }
 
 /** A subtitle search hit from the proxy (mirrors the server's normalized shape). */

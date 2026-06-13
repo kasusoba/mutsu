@@ -25,6 +25,26 @@ export const MSG_GET_STATE = "sixseven:get-state" as const;
 
 export type PartyRole = "creator" | "joiner";
 
+/** Personal fun-layer display settings (§14) — how YOU see reactions/gifs/chat
+ *  bubbles over the video. Not synced; gates display only. */
+export interface FunSettings {
+  reactions: boolean;
+  gifs: boolean;
+  bubbles: boolean;
+  speed: "fast" | "normal" | "slow";
+}
+export const FUN_DEFAULTS: FunSettings = { reactions: true, gifs: true, bubbles: true, speed: "normal" };
+export const FUN_SPEED_MULT: Record<FunSettings["speed"], number> = { fast: 0.5, normal: 1, slow: 1.9 };
+const FUN_KEY = "sixseven:funSettings";
+
+export async function loadFunSettings(): Promise<FunSettings> {
+  const got = await browser.storage.local.get(FUN_KEY);
+  return { ...FUN_DEFAULTS, ...((got[FUN_KEY] as Partial<FunSettings>) ?? {}) };
+}
+export async function saveFunSettings(s: FunSettings): Promise<void> {
+  await browser.storage.local.set({ [FUN_KEY]: s });
+}
+
 /** An active own-tab party this browser is part of (one per source tab). */
 export interface OwnTabParty {
   /** Room name AND shared capability — the short code users exchange. */
