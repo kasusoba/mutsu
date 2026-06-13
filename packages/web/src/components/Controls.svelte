@@ -14,9 +14,14 @@
   const { room, pos, muted, volume, onMute, onVolume, onFullscreen }: Props = $props();
 
   let scrubbing = $state(false);
-  let scrubValue = $state(0);
+  let scrubFrac = $state(0);
   let hoverX = $state(-1);
   let hoverTime = $state(0);
+  // After a seek we optimistically show the target until the next status report
+  // arrives (pos.at advances past `at`), so the bar lands exactly where clicked
+  // instead of snapping back to the stale position and jumping forward ~1s later.
+  let seekHold = $state<{ target: number; at: number; until: number } | null>(null);
+  let volDragging = $state(false);
 
   let tick = $state(0);
   $effect(() => {
@@ -30,13 +35,18 @@
 
   const liveTime = $derived.by(() => {
     void tick;
-    if (scrubbing) return scrubValue;
+    if (scrubbing) return scrubFrac * (pos.dur || 0);
+    const hold = seekHold;
+    if (hold && pos.at <= hold.at && performance.now() < hold.until) {
+      return playing ? hold.target + ((performance.now() - hold.at) / 1000) * rate : hold.target;
+    }
     const base = pos.t;
     if (!playing) return base;
     return base + ((performance.now() - pos.at) / 1000) * rate;
   });
   const clampedTime = $derived(Math.min(Math.max(0, liveTime), pos.dur || liveTime));
   const frac = $derived(pos.dur ? Math.min(1, clampedTime / pos.dur) : 0);
+  const volFracDisplay = $derived(muted ? 0 : volume);
 
   function fmt(t: number): string {
     if (!Number.isFinite(t)) return "0:00";
@@ -53,13 +63,30 @@
   function nudge(delta: number) {
     room.control(room.sync?.intent ?? "paused", Math.max(0, clampedTime + delta), rate);
   }
-  function onScrubInput(e: Event) {
-    scrubbing = true;
-    scrubValue = +(e.target as HTMLInputElement).value;
+  // Pixel-accurate fraction from a pointer over a track element. A native
+  // <input type=range> maps clicks through its (invisible) thumb width, so the
+  // value never quite reaches the ends and a click lands a few px off — we read
+  // the geometry directly instead so the seek/volume hit exactly where you click.
+  function fracOf(e: PointerEvent, el: HTMLElement): number {
+    const rect = el.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
   }
-  function onScrubCommit() {
-    room.control(room.sync?.intent ?? "paused", scrubValue, rate);
+
+  function onSeekDown(e: PointerEvent) {
+    if (!room.canControl || !hasSrc || !pos.dur) return;
+    scrubbing = true;
+    scrubFrac = fracOf(e, e.currentTarget as HTMLElement);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onSeekMove(e: PointerEvent) {
+    if (scrubbing) scrubFrac = fracOf(e, e.currentTarget as HTMLElement);
+  }
+  function onSeekUp() {
+    if (!scrubbing) return;
     scrubbing = false;
+    const target = scrubFrac * (pos.dur || 0);
+    room.control(room.sync?.intent ?? "paused", target, rate);
+    seekHold = { target, at: performance.now(), until: performance.now() + 6000 };
   }
   function onScrubHover(e: MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -67,6 +94,16 @@
     hoverX = e.clientX - rect.left;
     hoverTime = f * (pos.dur || 0);
   }
+
+  function onVolDown(e: PointerEvent) {
+    volDragging = true;
+    onVolume(fracOf(e, e.currentTarget as HTMLElement));
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function onVolMove(e: PointerEvent) {
+    if (volDragging) onVolume(fracOf(e, e.currentTarget as HTMLElement));
+  }
+
   function setRate(r: number) {
     room.control(room.sync?.intent ?? "paused", clampedTime, r);
   }
@@ -75,23 +112,25 @@
 <div class="bar">
   <div
     class="scrub-wrap"
-    role="presentation"
-    onmousemove={onScrubHover}
+    class:disabled={!room.canControl || !hasSrc || !pos.dur}
+    role="slider"
+    tabindex="0"
+    aria-label="Seek"
+    aria-valuemin="0"
+    aria-valuemax={Math.round(pos.dur || 0)}
+    aria-valuenow={Math.round(clampedTime)}
+    onpointerdown={onSeekDown}
+    onpointermove={(e) => {
+      onSeekMove(e);
+      onScrubHover(e);
+    }}
+    onpointerup={onSeekUp}
     onmouseleave={() => (hoverX = -1)}
   >
-    <div class="track"><div class="fill" style="width: {frac * 100}%"></div></div>
-    <input
-      class="scrub"
-      type="range"
-      min="0"
-      max={pos.dur || 0}
-      step="0.1"
-      value={clampedTime}
-      disabled={!room.canControl || !hasSrc || !pos.dur}
-      oninput={onScrubInput}
-      onchange={onScrubCommit}
-      aria-label="Seek"
-    />
+    <div class="track">
+      <div class="fill" style="width: {frac * 100}%"></div>
+      <div class="knob" style="left: {frac * 100}%"></div>
+    </div>
     {#if hoverX >= 0 && pos.dur}
       <span class="seek-tip" style="left: {hoverX}px">{fmt(hoverTime)}</span>
     {/if}
@@ -108,7 +147,21 @@
       <button class="ico" onclick={onMute} title={muted ? "Unmute" : "Mute"}>
         {#if muted || volume === 0}<VolumeX size={18} />{:else}<Volume2 size={18} />{/if}
       </button>
-      <input class="vol-slider" type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume} oninput={(e) => onVolume(+e.currentTarget.value)} aria-label="Volume" />
+      <div
+        class="vol-track"
+        role="slider"
+        tabindex="0"
+        aria-label="Volume"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={Math.round(volFracDisplay * 100)}
+        onpointerdown={onVolDown}
+        onpointermove={onVolMove}
+        onpointerup={() => (volDragging = false)}
+      >
+        <div class="vol-fill" style="width: {volFracDisplay * 100}%"></div>
+        <div class="knob" style="left: {volFracDisplay * 100}%"></div>
+      </div>
     </div>
 
     <span class="time">{fmt(clampedTime)} <span class="sep">/</span> {pos.dur ? fmt(pos.dur) : "--:--"}</span>
@@ -141,6 +194,14 @@
     height: 16px;
     display: flex;
     align-items: center;
+    cursor: pointer;
+    touch-action: none;
+  }
+  .scrub-wrap.disabled {
+    cursor: default;
+  }
+  .scrub-wrap:hover .knob {
+    transform: translate(-50%, -50%) scale(1);
   }
   .track {
     position: absolute;
@@ -149,27 +210,28 @@
     height: 4px;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.25);
-    overflow: hidden;
-    pointer-events: none;
   }
   .fill {
+    position: absolute;
+    left: 0;
+    top: 0;
     height: 100%;
+    border-radius: 999px;
     background: var(--accent);
   }
-  .scrub {
+  .knob {
     position: absolute;
-    inset: 0;
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: none;
-    border: none;
-    accent-color: var(--accent);
-    opacity: 0;
-    cursor: pointer;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0.12s ease;
+    pointer-events: none;
   }
-  .scrub:disabled {
-    cursor: default;
+  .scrub-wrap.disabled .knob {
+    display: none;
   }
   .seek-tip {
     position: absolute;
@@ -206,13 +268,39 @@
   .vol {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
   }
-  .vol-slider {
+  .vol-track {
+    position: relative;
     width: 72px;
-    accent-color: #fff;
-    background: none;
-    border: none;
+    height: 14px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    touch-action: none;
+  }
+  .vol-track::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.25);
+  }
+  .vol-fill {
+    position: absolute;
+    left: 0;
+    height: 4px;
+    border-radius: 999px;
+    background: #fff;
+  }
+  .vol-track .knob {
+    background: #fff;
+    transform: translate(-50%, -50%) scale(0);
+  }
+  .vol-track:hover .knob {
+    transform: translate(-50%, -50%) scale(1);
   }
   .time {
     font-variant-numeric: tabular-nums;

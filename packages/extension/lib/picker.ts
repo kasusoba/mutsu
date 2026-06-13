@@ -69,7 +69,23 @@ export function collectFrameCandidates(): MediaCandidate[] {
   // Skip our own room page's embed machinery if this frame is itself a room.
   const SELF_ATTR = "data-sixseven-room";
 
-  for (const f of Array.from(document.querySelectorAll("iframe"))) {
+  // Players like vidstack/shaka mount the <video> inside a shadow root, where a
+  // plain document.querySelectorAll can't see it. Walk open shadow roots too so
+  // we still find the element (and its <source> stream URL).
+  const deepAll = (sel: string): Element[] => {
+    const acc: Element[] = [];
+    const visit = (root: ParentNode) => {
+      for (const el of Array.from(root.querySelectorAll(sel))) acc.push(el);
+      for (const el of Array.from(root.querySelectorAll("*"))) {
+        const sr = (el as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+        if (sr) visit(sr);
+      }
+    };
+    visit(document);
+    return acc;
+  };
+
+  for (const f of deepAll("iframe") as HTMLIFrameElement[]) {
     const src = f.src;
     if (!src || !isHttp(src)) continue;
     if (f.contentDocument?.documentElement?.hasAttribute(SELF_ATTR)) continue;
@@ -87,7 +103,7 @@ export function collectFrameCandidates(): MediaCandidate[] {
     });
   }
 
-  for (const v of Array.from(document.querySelectorAll("video"))) {
+  for (const v of deepAll("video") as HTMLVideoElement[]) {
     const r = v.getBoundingClientRect();
     const playing = !v.paused && !v.ended && v.readyState > 2;
     const w = Math.round(r.width || v.videoWidth);

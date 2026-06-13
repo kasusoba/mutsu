@@ -36,6 +36,7 @@ const countEl = $("count");
 const noticeEl = $("notice");
 const manualInput = $<HTMLInputElement>("manualUrl");
 const manualSend = $<HTMLButtonElement>("manualSend");
+const rescanBtn = $<HTMLButtonElement>("rescan");
 
 let rooms: RoomTab[] = [];
 
@@ -187,13 +188,29 @@ manualInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && manualInput.value.trim()) deliver(manualInput.value.trim());
 });
 
-async function main(): Promise<void> {
+async function refresh(): Promise<void> {
+  rescanBtn.disabled = true;
   const [candidates, found] = await Promise.all([scanActiveTab(), discoverRooms()]);
   rooms = found;
   renderRooms();
   renderCandidates(candidates);
   if (!rooms.length) {
-    notice("No open sixseven room found. Open your room link, then reopen this.", "err");
+    notice("No open sixseven room found. Open & join your room link, then Rescan.", "err");
+  }
+  rescanBtn.disabled = false;
+}
+
+rescanBtn.addEventListener("click", refresh);
+
+async function main(): Promise<void> {
+  await refresh();
+  // Players (and room pages) often mount their <video>/attribute asynchronously,
+  // after the popup's first scan. If we came up empty, retry once shortly — this
+  // catches late-loading embeds without making the user click Rescan.
+  if (!listEl.querySelector(".cand") || !rooms.length) {
+    setTimeout(() => {
+      if (!listEl.querySelector(".cand") || !rooms.length) refresh();
+    }, 1200);
   }
 }
 

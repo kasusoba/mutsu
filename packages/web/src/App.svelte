@@ -59,6 +59,9 @@
 
   // De-dupe status reports to the server (the bridge reports every second).
   let lastStatus: MemberStatus | null = null;
+  // Local copy of the active player's readiness, for an immediate buffering
+  // spinner (no server round-trip). Direct player only — embeds are opaque.
+  let playerStatus = $state<MemberStatus>("loading");
   // The page owns the failed-timeout: a content-script frame only reports once it
   // has a <video>, so if none appears within the grace we mark this member failed.
   let failTimer: ReturnType<typeof setTimeout> | null = null;
@@ -80,6 +83,7 @@
   // report drives the buffer gate and the scrubber position.
   function onStatusReport(state: MemberStatus, currentTime: number, duration: number) {
     if (state === "ready" || state === "stalled") clearFailTimer();
+    playerStatus = state;
     report(state);
     pos = { t: currentTime, dur: duration, at: performance.now() };
   }
@@ -334,6 +338,10 @@
           <Embed src={room.sync?.src ?? null} {bridge} />
         {/if}
 
+        {#if sourceKind === "direct" && room.sync?.src && (playerStatus === "loading" || playerStatus === "stalled")}
+          <div class="spinner-wrap"><span class="spinner"></span></div>
+        {/if}
+
         {#if showHud && sourceKind === "embed" && hud}
           <div class="hud">
             t={hud.t.toFixed(2)} · want={hud.want.toFixed(2)} · drift={hud.drift.toFixed(2)} ·
@@ -477,6 +485,27 @@
     right: 0;
     bottom: 0;
     z-index: 20;
+  }
+  .spinner-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 18;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+  .spinner {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 4px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
   .popover {
     position: absolute;
