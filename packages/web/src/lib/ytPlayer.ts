@@ -20,6 +20,8 @@ import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@sixseven/p
 const HARD_SEEK = 1.5; // YT can't fine-slew playbackRate, so just snap big desync.
 const SEEK_JUMP = 1.2; // unexpected position jump (s) → the viewer scrubbed.
 const TICK_MS = 250;
+const STALL_DEBOUNCE_MS = 1000; // buffering must persist this long before we gate
+const SELF_QUIET_MS = 1500; // ignore buffering / seek-detection right after our own apply
 
 export interface YtApi {
   playVideo(): void;
@@ -73,6 +75,10 @@ export class YtPlayer {
   private last: { intent: SyncMessage["intent"]; gatePaused: boolean } | null = null;
   private rate = 1;
   private poll: ReturnType<typeof setInterval> | null = null;
+  private stallTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Last time WE drove the player (play/pause/seek) — buffering and position
+   *  jumps within SELF_QUIET_MS of this are our own doing, not a stall/scrub. */
+  private selfActAt = 0;
   // Echo suppression for our own apply():
   private expectPlay = false;
   private expectPause = false;
@@ -94,13 +100,14 @@ export class YtPlayer {
   /** Map a YT state change to readiness + report genuine user play/pause. */
   onYtState(s: number): void {
     if (s === 3) {
-      this.state = "stalled";
-      this.emit();
+      // Buffering: gate the room only if it PERSISTS while we should be playing
+      // and it isn't the buffering our own seek/play just caused (debounced).
+      this.armStall();
       return;
     }
     if (s === PLAYING || s === 2 || s === 5 || s === 0) {
-      this.state = "ready";
-      this.emit();
+      this.clearStall();
+      this.setState("ready");
     }
     if (s === PLAYING) {
       if (this.expectPlay) this.expectPlay = false;
@@ -111,11 +118,36 @@ export class YtPlayer {
     }
   }
 
+  private shouldBePlaying(): boolean {
+    return Boolean(this.last && this.last.intent === "playing" && !this.last.gatePaused);
+  }
+  private setState(s: MemberStatus): void {
+    if (this.state === s) return;
+    this.state = s;
+    this.emit();
+  }
+  private armStall(): void {
+    if (this.stallTimer) return;
+    if (performance.now() - this.selfActAt < SELF_QUIET_MS) return; // our own seek/play
+    if (!this.shouldBePlaying()) return;
+    this.stallTimer = setTimeout(() => {
+      this.stallTimer = null;
+      if (this.yt.getPlayerState() === 3 && this.shouldBePlaying()) this.setState("stalled");
+    }, STALL_DEBOUNCE_MS);
+  }
+  private clearStall(): void {
+    if (this.stallTimer) {
+      clearTimeout(this.stallTimer);
+      this.stallTimer = null;
+    }
+  }
+
   /** Enforce the server truth on the YT player (SPEC §4). */
   apply(sync: SyncMessage, gate: GateMessage): void {
     const shouldPlay = sync.intent === "playing" && !gate.paused;
     this.last = { intent: sync.intent, gatePaused: gate.paused };
     this.rate = Number.isFinite(sync.rate) && sync.rate > 0 ? sync.rate : 1;
+    this.selfActAt = performance.now(); // anything we do here is "our own action"
 
     const cur = this.cur();
     const drift = Math.abs(cur - sync.time);
@@ -149,11 +181,11 @@ export class YtPlayer {
 
     // Detect a user scrub on YT's native bar: position jumped vs where normal
     // playback would be, and it wasn't our own seek.
-    if (playing) {
+    if (playing && now - this.selfActAt > SELF_QUIET_MS) {
       const expected = this.lastTime + ((now - this.lastWall) / 1000) * this.rate;
       const ourSeek =
         this.expectSeekTo != null &&
-        (now - this.expectSeekAt < 1500 || Math.abs(cur - this.expectSeekTo) < 1.0);
+        (now - this.expectSeekAt < SELF_QUIET_MS || Math.abs(cur - this.expectSeekTo) < 1.0);
       if (!ourSeek && Math.abs(cur - expected) > SEEK_JUMP) {
         this.onUserControl("playing", cur);
       }
@@ -182,6 +214,7 @@ export class YtPlayer {
 
   destroy(): void {
     if (this.poll) clearInterval(this.poll);
+    this.clearStall();
     try {
       this.yt.destroy();
     } catch {
