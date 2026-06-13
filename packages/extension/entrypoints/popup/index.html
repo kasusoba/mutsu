@@ -112,6 +112,11 @@
         gap: 8px;
         background: var(--panel);
       }
+      /* `.target { display:flex }` would otherwise beat the `hidden` attribute,
+         leaving an empty room <select> visible when no room tab is found. */
+      .target[hidden] {
+        display: none;
+      }
       .target label {
         color: var(--muted);
         white-space: nowrap;
