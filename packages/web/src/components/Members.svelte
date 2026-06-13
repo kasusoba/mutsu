@@ -5,8 +5,9 @@
 
   interface Props {
     room: RoomClient;
+    onInvite: () => void;
   }
-  const { room }: Props = $props();
+  const { room, onInvite }: Props = $props();
 
   const statusLabel: Record<MemberStatus, string> = {
     loading: "loading",
@@ -40,6 +41,13 @@
       </li>
     {/each}
   </ul>
+
+  {#if room.members.length <= 1}
+    <div class="solo">
+      <p>It's just you here.</p>
+      <button class="invite" onclick={onInvite}>Copy invite link</button>
+    </div>
+  {/if}
 </section>
 
 <style>
@@ -56,6 +64,25 @@
   }
   .count {
     color: var(--text);
+  }
+  .solo {
+    margin-top: 10px;
+    padding: 10px;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    text-align: center;
+  }
+  .solo p {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .invite {
+    width: 100%;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
   }
   ul {
     list-style: none;

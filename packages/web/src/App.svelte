@@ -433,7 +433,7 @@
 
     {#if sidebarOpen}
       <aside>
-        <Members {room} />
+        <Members {room} onInvite={copyInvite} />
         <ActivityLog {room} />
       </aside>
     {/if}

@@ -29,6 +29,11 @@
   <form onsubmit={submit}>
     <h1>sixseven</h1>
     <p class="tag">Start a watch party. Everyone plays their own copy — we just keep it in sync.</p>
+    <ol class="how">
+      <li>Create a room</li>
+      <li>Share the link with friends</li>
+      <li>Pick something to watch — embed, direct video, or YouTube</li>
+    </ol>
 
     <label for="nick">Your nickname</label>
     <input id="nick" bind:value={nick} placeholder="e.g. alice" autocomplete="off" />
@@ -93,10 +98,17 @@
     letter-spacing: 0.5px;
   }
   .tag {
-    margin: 0 0 10px;
+    margin: 0 0 8px;
     color: var(--muted);
     font-size: 13px;
     line-height: 1.5;
+  }
+  .how {
+    margin: 0 0 10px;
+    padding-left: 20px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.7;
   }
   label,
   .label {
