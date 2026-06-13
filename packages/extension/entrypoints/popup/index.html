@@ -7,15 +7,18 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #15171c;
-        --panel: #1d2027;
-        --panel-2: #262a33;
-        --line: #2f343d;
-        --text: #e7e9ee;
-        --muted: #9aa0ad;
-        --accent: #6ea8fe;
-        --good: #5bd17b;
-        --bad: #f1707a;
+        /* Shared palette with the web app (packages/web/src/app.css) so both
+           surfaces read as one product. Keep these in sync. */
+        --bg: #0e0f13;
+        --panel: #171922;
+        --panel-2: #1f2230;
+        --line: #2a2e3d;
+        --text: #e7e9ef;
+        --muted: #9aa0b4;
+        --accent: #6c7cff;
+        --good: #41d18a;
+        --warn: #f5a623;
+        --bad: #ff5d6c;
       }
       * {
         box-sizing: border-box;
@@ -28,7 +31,7 @@
         width: 380px;
         max-height: 560px;
         overflow: hidden;
-        font: 13px/1.4 system-ui, sans-serif;
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         background: var(--bg);
         color: var(--text);
         display: flex;
