@@ -69,6 +69,13 @@ export interface JoinMessage {
   /** Capability secret from the URL fragment. null/"" attempts an open join. */
   secret: string | null;
   name: string;
+  /**
+   * Initial control mode, honoured ONLY when this join creates the room (the
+   * first join, trust-on-first-use). Lets the creation flow pick `host` up front
+   * (the creator becomes host). Ignored on every later/reconnect join — the room
+   * already has a mode, changed live via `setMode`/`passControl` (SPEC §8).
+   */
+  mode?: Mode;
 }
 
 /**

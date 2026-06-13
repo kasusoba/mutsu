@@ -24,6 +24,44 @@ export function readRoomLocation(): RoomLocation {
   return { room, secret };
 }
 
+/** A URL-safe capability secret (SPEC §10) — goes in the `#k=` fragment. */
+export function makeSecret(bytes = 16): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return btoa(String.fromCharCode(...buf))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+const ROOM_ADJ = ["cosy", "late", "rainy", "neon", "velvet", "amber", "quiet", "lucky"];
+const ROOM_NOUN = ["sofa", "lounge", "den", "balcony", "cinema", "loft", "patio", "booth"];
+
+/** A friendly default room name (the creator can override it). */
+export function makeRoomName(): string {
+  const buf = new Uint8Array(3);
+  crypto.getRandomValues(buf);
+  const adj = ROOM_ADJ[(buf[0] ?? 0) % ROOM_ADJ.length] ?? "cosy";
+  const noun = ROOM_NOUN[(buf[1] ?? 0) % ROOM_NOUN.length] ?? "lounge";
+  const n = 10 + ((buf[2] ?? 0) % 90);
+  return `${adj}-${noun}-${n}`;
+}
+
+/** Normalise a user-typed room name into a URL-safe slug. */
+export function slugifyRoom(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+/** Build the capability URL for a room + secret (`/r/<name>#k=<secret>`). */
+export function roomUrl(room: string, secret: string): string {
+  return `/r/${encodeURIComponent(room)}#k=${encodeURIComponent(secret)}`;
+}
+
 const NICK_KEY = "sixseven:nick";
 
 export function loadNickname(): string {

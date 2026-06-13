@@ -284,6 +284,7 @@ export default class RoomServer implements Party.Server {
   ): Promise<void> {
     // Trust-on-first-use: the first join establishes the room secret (the
     // capability URL's fragment). Later joins must match, unless open (SPEC §10).
+    const isNewRoom = !this.s.auth;
     if (!this.s.auth) {
       this.s.auth = { secret: msg.secret ?? null, open: false };
     } else if (!this.s.auth.open && this.s.auth.secret !== (msg.secret ?? null)) {
@@ -301,6 +302,14 @@ export default class RoomServer implements Party.Server {
     const joinSeq = this.s.members[sender.id]?.joinSeq ?? this.s.seq++;
     this.s.members[sender.id] = { name, status: "loading", joinSeq };
     sender.setState({ admitted: true });
+
+    // The room's creator picks the control mode up front (M2). Honour it only on
+    // the join that CREATES the room — the creator becomes host. Later joins (and
+    // reconnects) carry no authority to reset mode; that's `setMode`/`passControl`.
+    if (isNewRoom && msg.mode === "host") {
+      this.s.mode = "host";
+      this.s.hostId = sender.id;
+    }
 
     if (!isReconnect) this.appendLog({ kind: "joined", actor: sender.id, detail: name });
 

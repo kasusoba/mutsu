@@ -39,12 +39,15 @@ export class RoomClient {
     readonly room: string,
     private readonly secret: string | null,
     private readonly name: string,
+    /** Initial control mode when this client CREATES the room (M2). The server
+     *  honours it only on the room-creating join; ignored on reconnects. */
+    private readonly createMode?: Mode,
   ) {
     this.socket = new PartySocket({ host, room });
     this.socket.addEventListener("open", () => {
       this.connected = true;
       // (Re)join on every open so reconnects re-admit + resync (SPEC §7).
-      this.send({ type: "join", secret: this.secret, name: this.name });
+      this.send({ type: "join", secret: this.secret, name: this.name, mode: this.createMode });
     });
     this.socket.addEventListener("close", () => {
       this.connected = false;

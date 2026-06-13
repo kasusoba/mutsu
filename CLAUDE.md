@@ -127,6 +127,18 @@ room page → Cloudflare Pages with `VITE_PARTYKIT_HOST` baked in (`public/_redi
 fallback for `/r/<room>`); extension → load unpacked or publish. In dev, the web talks to its own
 origin and Vite proxies `/parties` to the local server, so one tunnel serves both for cross-device tests.
 
+**UI/UX (M1+M2) — built:** the room page is a proper player surface: a top bar (room name +
+Invite/Subtitles/Source/mode/sidebar buttons), a full-bleed `.player-area`, popover Source/Subtitle
+panels, a custom video control bar **for the direct player only** (embeds keep their native bar +
+our subtitle overlay), and a collapsible right sidebar (Members + Activity). Icons are unified on
+**Lucide** across both surfaces — `lucide-svelte` in the web, hand-inlined matching SVG paths in the
+extension popup (`entrypoints/popup/icons.ts`). **Room creation (M2):** a `CreateRoom` landing page
+(shown when the URL has no room) takes nickname + room name + control mode; it mints a capability
+secret, `history.pushState`es to `/r/<name>#k=<secret>` (no reload), and joins. Control mode is
+**picked at creation** — carried on the creator's `join` as `mode?` (honoured only on the
+room-creating join → creator is host) — and still flips live via the top-bar toggle (`setMode`) and
+`passControl` (host handoff). The Invite button copies the capability URL.
+
 **Next up:** frame-forbidding **own-tab sync** (P4 — for sites that refuse to embed, e.g. aggregators);
 YouTube iframe API; embedded-track subtitles.
 

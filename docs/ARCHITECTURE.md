@@ -60,8 +60,11 @@ Room {
   broadcast. No roles. Best for a trusting friend group.
 - **`host`**: only `hostId`'s `control` messages are accepted; others are ignored (their
   local player still follows `sync`). The host can hand off with `passControl`.
-- The mode is a room setting and can be flipped live via `setMode`. The server enforces
-  acceptance — a `control` from a non-host in `host` mode is dropped server-side.
+- The mode is a room setting **chosen at room creation** (the create-room landing page) and
+  carried on the creator's `join` as an optional `mode` — the server honours it **only on the
+  room-creating join** (trust-on-first-use), making the creator the host. It can still be
+  flipped live via `setMode` (host locks/unlocks) and `passControl` (host hands off). The
+  server enforces acceptance — a `control` from a non-host in `host` mode is dropped server-side.
 
 ### The single-clock rule (this is the important design decision)
 
@@ -88,7 +91,7 @@ Drift correction is hard if clients project playback time using their own wall c
 Client → server:
 | type | payload | meaning |
 |---|---|---|
-| `join` | `{ secret, name }` | join a room; secret = capability-URL fragment (SPEC §10). Server replies with `welcome` + a snapshot |
+| `join` | `{ secret, name, mode? }` | join a room; secret = capability-URL fragment; `mode` is the creator's chosen control mode, honoured only on the room-creating join (SPEC §10). Server replies with `welcome` + a snapshot |
 | `setSource` | `{ src, kind? }` | change the room's source; resets time to 0 (control-mode gated). `kind` = `embed`\|`direct` (default `embed`) — how clients render it |
 | `control` | `{ intent, time, rate? }` | user played/paused/seeked locally (accepted per control mode) |
 | `setMode` | `{ mode }` | switch room between `open` and `host` (control-mode gated) |

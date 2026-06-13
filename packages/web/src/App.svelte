@@ -1,16 +1,18 @@
 <script lang="ts">
-  import type { Intent, MemberStatus, SyncMessage } from "@sixseven/protocol";
+  import type { Intent, MemberStatus, Mode, SyncMessage } from "@sixseven/protocol";
   import {
     Captions,
     Crown,
     Link2,
     PanelRightClose,
     PanelRightOpen,
+    Share2,
     Users,
     X,
   } from "lucide-svelte";
   import ActivityLog from "./components/ActivityLog.svelte";
   import Controls from "./components/Controls.svelte";
+  import CreateRoom from "./components/CreateRoom.svelte";
   import DirectPlayer from "./components/DirectPlayer.svelte";
   import Embed from "./components/Embed.svelte";
   import Join from "./components/Join.svelte";
@@ -20,11 +22,17 @@
   import { isPickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
   import { PageBridge } from "./lib/bridge";
   import { RoomClient } from "./lib/room.svelte";
-  import { loadNickname, readRoomLocation, saveNickname } from "./lib/session";
+  import {
+    loadNickname,
+    makeSecret,
+    readRoomLocation,
+    roomUrl,
+    saveNickname,
+  } from "./lib/session";
   import { classifySource, extractSourceUrl } from "./lib/source";
   import { SubtitleController } from "./lib/subtitleController.svelte";
 
-  const loc = readRoomLocation();
+  let loc = $state(readRoomLocation());
   let nickname = $state(loadNickname());
   let room = $state<RoomClient | null>(null);
   let bridge = $state<PageBridge | null>(null);
@@ -79,7 +87,17 @@
     room?.control(intent, time);
   }
 
-  function join(nick: string) {
+  // Create a brand-new room: mint a secret, push the capability URL into history
+  // (no reload — keeps it a single SPA session), then join with the chosen mode.
+  // The server honours `createMode` only on the room-creating join (M2).
+  function createRoom(name: string, nick: string, mode: Mode) {
+    const secret = makeSecret();
+    history.pushState({}, "", roomUrl(name, secret));
+    loc = { room: name, secret };
+    join(nick, mode);
+  }
+
+  function join(nick: string, createMode?: Mode) {
     saveNickname(nick);
     nickname = nick;
 
@@ -88,7 +106,7 @@
     // /parties to the local PartyKit; in prod set VITE_PARTYKIT_HOST). This lets
     // one tunnel serve both the page and the backend for cross-device testing.
     const host = __PARTYKIT_HOST__ || window.location.host;
-    const r = new RoomClient(host, loc.room, loc.secret, nick);
+    const r = new RoomClient(host, loc.room, loc.secret, nick, createMode);
     // Throttle resync requests across rapid (re)hooks (see b.onHooked).
     let lastResyncAt = 0;
 
@@ -246,6 +264,15 @@
   function togglePanel(p: "source" | "subs") {
     activePanel = activePanel === p ? null : p;
   }
+  // Copy the capability URL (room + secret) so the creator can invite people.
+  function copyInvite() {
+    const path = loc.secret ? roomUrl(loc.room, loc.secret) : `/r/${encodeURIComponent(loc.room)}`;
+    const url = window.location.origin + path;
+    navigator.clipboard.writeText(url).then(
+      () => flashPicker("Invite link copied — share it to bring people in.", true),
+      () => flashPicker("Couldn't copy — grab the URL from the address bar.", false),
+    );
+  }
   function toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen();
     else playerArea?.requestFullscreen?.();
@@ -256,7 +283,9 @@
   }
 </script>
 
-{#if !joined}
+{#if !loc.room}
+  <CreateRoom initialNick={nickname} onCreate={createRoom} />
+{:else if !joined}
   <Join room={loc.room} initialNick={nickname} onJoin={join} />
 {:else if room && bridge}
   <div class="layout" class:full={!sidebarOpen}>
@@ -264,14 +293,23 @@
       <header class="topbar">
         <span class="brand">sixseven</span>
         <span class="dot {room.connected ? 'on' : 'off'}" title={room.connected ? 'connected' : 'reconnecting…'}></span>
+        <span class="room-name" title="Room">{loc.room}</span>
         <span class="spacer"></span>
+        <button class="tb" onclick={copyInvite} title="Copy the invite link">
+          <Share2 size={16} /> Invite
+        </button>
         <button class="tb" class:on={activePanel === 'subs'} onclick={() => togglePanel('subs')} disabled={!room.sync?.src}>
           <Captions size={16} /> Subtitles
         </button>
         <button class="tb" class:on={activePanel === 'source'} onclick={() => togglePanel('source')} disabled={!room.canControl}>
           <Link2 size={16} /> Source
         </button>
-        <button class="tb" onclick={() => room?.setMode(mode === 'host' ? 'open' : 'host')} disabled={!room.canControl} title="Who can control playback">
+        <button
+          class="tb"
+          onclick={() => room?.setMode(mode === 'host' ? 'open' : 'host')}
+          disabled={!room.canControl}
+          title={mode === 'host' ? 'Host-only — click to let anyone control' : 'Anyone can control — click to lock to host'}
+        >
           {#if mode === 'host'}<Crown size={16} /> Host-only{:else}<Users size={16} /> Anyone{/if}
         </button>
         <button class="tb icon-only" onclick={() => (sidebarOpen = !sidebarOpen)} title={sidebarOpen ? 'Hide panel' : 'Show panel'}>
@@ -388,6 +426,14 @@
   .topbar .brand {
     font-weight: 700;
     letter-spacing: 0.5px;
+  }
+  .room-name {
+    color: var(--muted);
+    font-size: 13px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .dot {
     width: 8px;
