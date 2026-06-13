@@ -31,6 +31,7 @@ export class RoomClient {
   log = $state<LogEvent[]>([]);
   playlist = $state<SourceItem[]>([]);
   playlistCurrentId = $state<string | null>(null);
+  autoplay = $state(true);
 
   /** Ephemeral fun-layer events (§14) — reactions/chat/gif. Transient, so they
    *  flow through a callback the UI subscribes to, not into reactive state. */
@@ -94,6 +95,7 @@ export class RoomClient {
       case "playlist":
         this.playlist = msg.items;
         this.playlistCurrentId = msg.currentId;
+        this.autoplay = msg.autoplay;
         break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
@@ -147,8 +149,11 @@ export class RoomClient {
   playItem(id: string): void {
     this.send({ type: "playItem", id });
   }
-  queueReorder(id: string, dir: "up" | "down"): void {
-    this.send({ type: "queueReorder", id, dir });
+  queueReorder(id: string, toIndex: number): void {
+    this.send({ type: "queueReorder", id, toIndex });
+  }
+  setAutoplay(on: boolean): void {
+    this.send({ type: "setAutoplay", on });
   }
   playNext(afterId?: string | null): void {
     this.send({ type: "playNext", afterId });

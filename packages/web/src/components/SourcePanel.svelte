@@ -59,6 +59,15 @@
       return u;
     }
   }
+
+  // Drag-to-reorder the queue.
+  let dragId = $state<string | null>(null);
+  let dragOverId = $state<string | null>(null);
+  function onDrop(toIndex: number) {
+    if (dragId) room.queueReorder(dragId, toIndex);
+    dragId = null;
+    dragOverId = null;
+  }
   async function copySrc() {
     if (!currentSrc) return;
     try {
@@ -107,16 +116,25 @@
     <div class="queue">
       <div class="q-head">
         <span class="lbl">Up next · {room.playlist.length}</span>
+        <label class="auto"><input type="checkbox" checked={room.autoplay} disabled={!room.canControl} onchange={(e) => room.setAutoplay(e.currentTarget.checked)} /> autoplay</label>
         <button class="link" onclick={() => room.queueClear()} disabled={!room.canControl}>clear</button>
       </div>
       <ul>
         {#each room.playlist as it, i (it.id)}
-          <li class:playing={it.id === room.playlistCurrentId}>
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <li
+            class:playing={it.id === room.playlistCurrentId}
+            class:dragover={dragOverId === it.id}
+            draggable={room.canControl}
+            ondragstart={() => (dragId = it.id)}
+            ondragend={() => { dragId = null; dragOverId = null; }}
+            ondragover={(e) => { e.preventDefault(); if (dragId) dragOverId = it.id; }}
+            ondrop={(e) => { e.preventDefault(); onDrop(i); }}
+          >
+            {#if room.canControl}<span class="q-grip" title="Drag to reorder">⠿</span>{/if}
             <button class="q-play" onclick={() => room.playItem(it.id)} disabled={!room.canControl} title="Play now">▶</button>
             <span class="q-title" title={it.src}>{it.title ?? host(it.src)}</span>
             <span class="q-kind">{KIND_LABEL[it.kind] ?? it.kind}</span>
-            <button class="q-move" onclick={() => room.queueReorder(it.id, 'up')} disabled={!room.canControl || i === 0} aria-label="Move up">↑</button>
-            <button class="q-move" onclick={() => room.queueReorder(it.id, 'down')} disabled={!room.canControl || i === room.playlist.length - 1} aria-label="Move down">↓</button>
             <button class="q-x" onclick={() => room.queueRemove(it.id)} disabled={!room.canControl} aria-label="Remove">✕</button>
           </li>
         {/each}
@@ -242,8 +260,7 @@
     background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
   .q-play,
-  .q-x,
-  .q-move {
+  .q-x {
     flex: none;
     padding: 2px 5px;
     background: none;
@@ -252,12 +269,32 @@
     cursor: pointer;
   }
   .q-play:hover:not(:disabled),
-  .q-x:hover:not(:disabled),
-  .q-move:hover:not(:disabled) {
+  .q-x:hover:not(:disabled) {
     color: var(--text);
   }
-  .q-move:disabled {
-    opacity: 0.3;
+  .q-grip {
+    flex: none;
+    color: var(--muted);
+    cursor: grab;
+    user-select: none;
+    font-size: 13px;
+  }
+  .queue li[draggable="true"] {
+    cursor: grab;
+  }
+  .queue li.dragover {
+    box-shadow: inset 0 2px 0 var(--accent);
+  }
+  .auto {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .q-head .link {
+    margin-left: 8px;
   }
   .q-title {
     flex: 1;

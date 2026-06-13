@@ -185,17 +185,22 @@ export interface PlayItemMessage {
   type: "playItem";
   id: string;
 }
-/** Move a queued item one slot up or down (control-mode gated). */
+/** Move a queued item to a new position (drag-to-reorder; control-mode gated). */
 export interface QueueReorderMessage {
   type: "queueReorder";
   id: string;
-  dir: "up" | "down";
+  toIndex: number;
 }
 /** Advance to the next queued item. `afterId` = the item the sender thinks just
  *  ended, so the server ignores duplicate advances from multiple clients. */
 export interface PlayNextMessage {
   type: "playNext";
   afterId?: string | null;
+}
+/** Toggle whether queue items start playing on their own (control-mode gated). */
+export interface SetAutoplayMessage {
+  type: "setAutoplay";
+  on: boolean;
 }
 
 export type ClientMessage =
@@ -213,7 +218,8 @@ export type ClientMessage =
   | QueueClearMessage
   | PlayItemMessage
   | QueueReorderMessage
-  | PlayNextMessage;
+  | PlayNextMessage
+  | SetAutoplayMessage;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Server → client
@@ -296,6 +302,8 @@ export interface PlaylistMessage {
   type: "playlist";
   items: SourceItem[];
   currentId: string | null;
+  /** Whether queue items start playing on their own (§14). */
+  autoplay: boolean;
 }
 
 export type ServerMessage =

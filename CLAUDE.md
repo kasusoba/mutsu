@@ -165,9 +165,13 @@ with per-browser favorites (tag-filterable), and per-viewer display settings (pe
 Linger speed). Room launcher is in the top bar (off the video). `components/{Reactions,Chat,GifPicker}.svelte`,
 `extension/lib/reactionLayer.ts`, `server/src/gif.ts`.
 
-**Next up (idea list):** playlist (queue + auto-advance); audio-only sources (YouTube Music etc. →
-"Spotify jam"). Deferred: embedded-track subs for nested-iframe/room (escape hatch accepted);
-cross-device favorites.
+**Playlist (§14) — built:** a per-room queue (Source panel: `+ Queue`, an "Up next" list with
+drag-to-reorder, play/remove/clear) with auto-advance when a video ends (players' `onEnded` / a new
+`ended` bridge msg) and a room-level autoplay toggle. The picker can add to the queue too. Server:
+`queue`/`currentId`/`autoplay`, control-mode gated. Room-page modes only; own-tab ignores it.
+
+**Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam"). Deferred:
+embedded-track subs for nested-iframe/room (escape hatch accepted).
 
 **Deploy reminder:** new server features (own-tab `observer`, fun-layer `say`/`gif`, M2 mode, subtitle
 ordering) only work once `npx partykit deploy` + `env push` are run — the extension always talks to the

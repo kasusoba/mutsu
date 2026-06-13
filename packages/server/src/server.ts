@@ -66,6 +66,8 @@ interface RoomState {
   /** Playlist (§16): queued sources + which one is playing. */
   queue: SourceItem[];
   currentId: string | null;
+  /** Whether queue items start playing on their own (continuous playback). */
+  autoplay: boolean;
 }
 
 interface StoredMember {
@@ -97,6 +99,7 @@ function freshState(): RoomState {
     seq: 0,
     queue: [],
     currentId: null,
+    autoplay: true,
   };
 }
 
@@ -119,6 +122,7 @@ export default class RoomServer implements Party.Server {
     if (!this.s.srcKind) this.s.srcKind = "embed"; // storage predating srcKind
     if (!this.s.queue) this.s.queue = []; // storage predating the playlist (§16)
     if (this.s.currentId === undefined) this.s.currentId = null;
+    if (this.s.autoplay === undefined) this.s.autoplay = true;
     // A (re)start drops every socket, but `members` was persisted — so anything
     // left over is a GHOST with no live connection. Prune them, or they sit in
     // presence (and possibly the gate, freezing the clock) forever. Real clients
@@ -272,9 +276,11 @@ export default class RoomServer implements Party.Server {
       case "playItem":
         return void this.handlePlayItem(sender, msg.id);
       case "queueReorder":
-        return void this.handleQueueReorder(sender, msg.id, msg.dir);
+        return void this.handleQueueReorder(sender, msg.id, msg.toIndex);
       case "playNext":
         return void this.handlePlayNext(sender, msg.afterId);
+      case "setAutoplay":
+        return void this.handleSetAutoplay(sender, msg.on);
     }
   }
 
@@ -393,12 +399,19 @@ export default class RoomServer implements Party.Server {
 
   /** Apply a new room source (reset clock/gate, everyone reloads). Shared by
    *  manual setSource and playing a queue item (§16). No permission check. */
-  private async applySource(src: string, kind: SourceKind | undefined, actor: MemberId): Promise<void> {
+  private async applySource(
+    src: string,
+    kind: SourceKind | undefined,
+    actor: MemberId,
+    play = false,
+  ): Promise<void> {
     const now = Date.now();
     this.s.src = src;
     this.s.srcKind =
       kind === "direct" || kind === "site" || kind === "youtube" ? kind : "embed";
-    this.s.intent = "paused";
+    // Autoplay queue items start `playing`; the buffer gate still holds until
+    // everyone's loaded (a not-ready client reports stalled → soft-pause).
+    this.s.intent = play ? "playing" : "paused";
     this.s.time = 0;
     this.s.rate = 1;
     this.s.updatedAt = now;
@@ -466,7 +479,7 @@ export default class RoomServer implements Party.Server {
     const item = this.s.queue.find((i) => i.id === id);
     if (!item) return;
     this.s.currentId = id;
-    await this.applySource(item.src, item.kind, sender.id);
+    await this.applySource(item.src, item.kind, sender.id, this.s.autoplay);
     this.broadcastPlaylist();
   }
 
@@ -479,27 +492,40 @@ export default class RoomServer implements Party.Server {
     const next = i >= 0 ? this.s.queue[i + 1] : this.s.queue[0];
     if (!next) return; // end of queue — stop
     this.s.currentId = next.id;
-    await this.applySource(next.src, next.kind, sender.id);
+    await this.applySource(next.src, next.kind, sender.id, this.s.autoplay);
     this.broadcastPlaylist();
+  }
+
+  private async handleSetAutoplay(sender: Party.Connection, on: boolean): Promise<void> {
+    if (!this.canControl(sender.id)) return this.correct(sender);
+    this.s.autoplay = Boolean(on);
+    this.broadcastPlaylist();
+    await this.persist();
   }
 
   private async handleQueueReorder(
     sender: Party.Connection,
     id: string,
-    dir: "up" | "down",
+    toIndex: number,
   ): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
-    const i = this.s.queue.findIndex((x) => x.id === id);
-    const j = dir === "up" ? i - 1 : i + 1;
-    if (i < 0 || j < 0 || j >= this.s.queue.length) return;
-    const q = this.s.queue;
-    [q[i], q[j]] = [q[j] as SourceItem, q[i] as SourceItem];
+    const from = this.s.queue.findIndex((x) => x.id === id);
+    if (from < 0 || typeof toIndex !== "number") return;
+    const [item] = this.s.queue.splice(from, 1);
+    if (!item) return;
+    const to = Math.max(0, Math.min(this.s.queue.length, Math.floor(toIndex)));
+    this.s.queue.splice(to, 0, item);
     this.broadcastPlaylist();
     await this.persist();
   }
 
   private playlistMessage(): ServerMessage {
-    return { type: "playlist", items: this.s.queue, currentId: this.s.currentId };
+    return {
+      type: "playlist",
+      items: this.s.queue,
+      currentId: this.s.currentId,
+      autoplay: this.s.autoplay,
+    };
   }
   private broadcastPlaylist(): void {
     this.room.broadcast(encode(this.playlistMessage()));
