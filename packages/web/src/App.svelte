@@ -311,7 +311,11 @@
     appliedInitialSrc = true;
     if (!room.sync?.src) {
       const clean = extractSourceUrl(loc.initialSrc).url ?? loc.initialSrc;
-      const kind = (loc.initialKind as SourceKind | undefined) ?? classifySource(clean);
+      // YouTube always wins — a YT watch URL must use the IFrame API, not a raw
+      // iframe (which YouTube refuses → "refused to connect"). Otherwise trust the
+      // popup's hint, falling back to the classifier.
+      const auto = classifySource(clean);
+      const kind = auto === "youtube" ? "youtube" : ((loc.initialKind as SourceKind) ?? auto);
       room.setSource(clean, kind);
     }
     const u = new URL(window.location.href);
