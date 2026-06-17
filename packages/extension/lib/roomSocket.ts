@@ -47,6 +47,8 @@ export interface RoomSocketHandlers {
   onEvent?: (e: EventMessage) => void;
   /** Terminal rejection (bad secret) — the socket stops reconnecting. */
   onFatal?: (message: string) => void;
+  /** Video call (§17): an inbound WebRTC signal (SDP/ICE) from a peer. */
+  onRtcSignal?: (from: MemberId, data: unknown) => void;
 }
 
 export class RoomSocket {
@@ -118,6 +120,9 @@ export class RoomSocket {
       case "event":
         this.h.onEvent?.(msg);
         break;
+      case "rtcSignal":
+        this.h.onRtcSignal?.(msg.from, msg.data);
+        break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
         if (msg.code === "unauthorized") this.failAuth();
@@ -160,6 +165,16 @@ export class RoomSocket {
   }
   say(kind: SayKind, text: string): void {
     this.send({ type: "say", kind, text });
+  }
+  // ── video call (§17) ──────────────────────────────────────────────────────
+  setCam(on: boolean): void {
+    this.send({ type: "setCam", on });
+  }
+  rtcSignal(to: MemberId, data: unknown): void {
+    this.send({ type: "rtcSignal", to, data });
+  }
+  iceServers(): Promise<{ iceServers: RTCIceServer[] }> {
+    return this.proxy("rtc.iceServers", {});
   }
 
   // ── subtitle proxy (SPEC §13) — member-gated by the room secret ─────────────

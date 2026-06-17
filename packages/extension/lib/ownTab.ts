@@ -23,6 +23,7 @@ import type {
 } from "@sixseven/protocol/bridge";
 import { DEFAULT_SUBTITLE_STYLE, unwrap, wrap } from "@sixseven/protocol/bridge";
 import { parseSubtitles } from "@sixseven/protocol/subtitles";
+import { CallManager } from "./call";
 import {
   FUN_DEFAULTS,
   FUN_SPEED_MULT,
@@ -57,6 +58,10 @@ export class OwnTabController {
   // routes back DOWN (the nested frame reads its cues into its own subtitle layer).
   private tracks: TrackInfo[] = [];
   private tracksNested = false;
+  // Video call (§17): peer-to-peer webcam/mic, signaled over the room socket.
+  private call: CallManager | null = null;
+  private micOn = true;
+  private camOn = true;
   // Fun layer (§14): floating emoji reactions over the site's video.
   private reactions = new ReactionLayer(() => this.hook.videoRect());
   private chatLog: { id: number; name: string; text: string; self: boolean }[] = [];
@@ -99,6 +104,12 @@ export class OwnTabController {
         saveFunSettings(s);
         this.reactions.setMult(FUN_SPEED_MULT[s.speed]);
       },
+      call: {
+        onStart: () => void this.startCall(),
+        onLeave: () => this.leaveCall(),
+        onMic: () => this.toggleMic(),
+        onCam: () => this.toggleCam(),
+      },
     });
 
     this.socket = new RoomSocket(
@@ -124,8 +135,11 @@ export class OwnTabController {
           this.maybeApply();
           this.widget.update({ gate: this.socket.gate });
         },
-        onMembers: () =>
-          this.widget.update({ members: this.socket.members, selfId: this.socket.self }),
+        onMembers: () => {
+          this.widget.update({ members: this.socket.members, selfId: this.socket.self });
+          this.reconcileCall();
+        },
+        onRtcSignal: (from, data) => this.call?.handleSignal(from, data),
         onEvent: (e) => {
           if (e.kind === "reaction") {
             if (this.fun.reactions) this.reactions.spawn(e.text);
@@ -376,6 +390,63 @@ export class OwnTabController {
     });
   }
 
+  // ── video call (§17) — peer-to-peer, signaled over the room socket ──────────
+
+  private async startCall(): Promise<void> {
+    if (this.call) return;
+    const self = this.socket.self;
+    if (!self) return; // not connected yet — nothing to attach to
+    this.micOn = true;
+    this.camOn = true;
+    this.call = new CallManager(
+      self,
+      (to, data) => this.socket.rtcSignal(to, data),
+      async () => (await this.socket.iceServers()).iceServers,
+      (id, stream) => this.widget.setRemote(id, stream),
+    );
+    try {
+      const local = await this.call.startMedia();
+      this.socket.setCam(true);
+      this.widget.setCallActive(true);
+      this.widget.setLocalStream(local);
+      this.widget.setCallControls(true, true);
+      this.reconcileCall();
+    } catch {
+      this.call?.stop();
+      this.call = null;
+      this.widget.setCallActive(true); // keep the panel open to show the error
+      this.widget.setCallError("Couldn't access camera/mic — the site may block it.");
+    }
+  }
+
+  private leaveCall(): void {
+    if (!this.call) return;
+    this.socket.setCam(false);
+    this.call.stop();
+    this.call = null;
+    this.widget.setCallActive(false);
+  }
+
+  /** Connect to / drop peers as their cameras come and go. */
+  private reconcileCall(): void {
+    if (!this.call) return;
+    const self = this.socket.self;
+    const ids = this.socket.members.filter((m) => m.id !== self && m.cam).map((m) => m.id);
+    this.call.setPeers(ids);
+  }
+
+  private toggleMic(): void {
+    this.micOn = !this.micOn;
+    this.call?.setMicEnabled(this.micOn);
+    this.widget.setCallControls(this.micOn, this.camOn);
+  }
+
+  private toggleCam(): void {
+    this.camOn = !this.camOn;
+    this.call?.setCamEnabled(this.camOn);
+    this.widget.setCallControls(this.micOn, this.camOn);
+  }
+
   /** Live snapshot for the popup (which queries us instead of opening its own
    *  connection — avoids a phantom presence member). */
   getState() {
@@ -394,6 +465,7 @@ export class OwnTabController {
     this.destroyed = true;
     this.clearFailTimer();
     window.removeEventListener("message", this.onFrameMessage);
+    this.call?.stop();
     this.socket.destroy();
     this.hook.destroy();
     this.subtitles.destroy();

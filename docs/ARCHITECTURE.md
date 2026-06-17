@@ -163,6 +163,15 @@ Three hops, no background worker (discovery is live, so it survives a suspended 
   iframe-snippet unwrap) and calls `setSource` iff the viewer `canControl` (else a banner explains
   host mode). The popup also has a manual paste box that delivers the same way.
 
+**Create a room from the popup.** The popup's first tab is **Room** (second = "Watch on this page").
+By default a scanned video / pasted URL **creates a new room** rather than sending to an existing one:
+the popup mints `name + #k=secret` and opens the deployed room page (`WEB_APP_URL`) at
+`/r/<name>?src=<url>&kind=<kind>#k=<secret>`; the room page reads `?src`/`kind` (`readRoomLocation`)
+and `setSource`s it once the creator has joined (and may control), then strips the query so a reload
+doesn't re-fire (App `$effect`). **＋ New empty room** opens a room with no source. A **Send to an open
+room instead** checkbox (only shown when a room tab is open) switches back to the deliver-to-open-room
+flow above. This still moves a URL only (§2) — the room page loads it first-party.
+
 The page-facing message (`pick-source`) and the `data-sixseven-room` marker live in
 `packages/protocol/src/picker.ts` (`@sixseven/protocol/picker`) since both web and extension need
 them; the `are-you-room`/`deliver-source` runtime messages are extension-internal
@@ -613,7 +622,12 @@ to 1,000 GB/mo); the server mints short-lived credentials so the key stays serve
 → STUN-only, still works for the common case. Webcam streams between friends are a separate
 category from the watched source — §3 (no DRM/ripping/forging of the *content*) is unaffected.
 
-**Scope:** room-page only for now. Own-tab (the Netflix/DRM path) is a follow-up and carries a
-real caveat: a content script's `getUserMedia` is subject to the host page's `Permissions-Policy`,
-so sites that disallow `camera`/`microphone` could block an in-page call — needs verification
-before building.
+**Two surfaces, one core.** The same `CallManager` drives both the **room page**
+(`components/VideoCall.svelte`, signaling over `RoomClient`) and **own-tab** (the widget's call
+section, signaling over `RoomSocket`; tiles managed imperatively so the widget's `render()` never
+reloads the `<video>`s). The class is duplicated in `web/src/lib/call.ts` + `extension/lib/call.ts`
+because `@sixseven/protocol` is DOM-free and can't host DOM-typed code — keep the twins in sync.
+
+**Own-tab caveat:** a content script's `getUserMedia` runs under the *host page's*
+`Permissions-Policy`, so a site that disallows `camera`/`microphone` (possibly Netflix) can block the
+in-page call. We don't fight it — `getUserMedia` rejection surfaces a "the site may block it" message.

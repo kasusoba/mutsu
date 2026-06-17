@@ -102,13 +102,20 @@ load + restyle + time-shift subs over a real synced video — pending browser ru
 
 ## Backlog — captured ideas (not yet scheduled)
 
-### Video call (webcam + mic between viewers) — 🟡 built (room page, v1+v1.1), pending live test
-**Status:** room-page 1:1 call shipped — `setCam`/`rtcSignal` signaling on the DO, `CallManager`
-(perfect negotiation) in `web/src/lib/call.ts`, `VideoCall.svelte` UI, top-bar **Call** button.
+### Video call (webcam + mic between viewers) — 🟡 built (room page + own-tab), pending live test
+**Status:** 1:1 call shipped on **both** surfaces — `setCam`/`rtcSignal` signaling on the DO, a shared
+`CallManager` (perfect negotiation, duplicated in `web/src/lib/call.ts` + `extension/lib/call.ts`).
+Room page = `VideoCall.svelte` + top-bar **Call**; own-tab = the widget's **Start video call** + tiles.
 STUN-only by default (free); TURN auto-enables when `TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are env-set
-(Cloudflare Realtime TURN, free ≤1000 GB/mo). Capped at 2 publishers. **Own-tab (Netflix) call still
-TODO** — and may be blocked by the host page's `Permissions-Policy camera` (verify before building).
-Original design notes below.
+(Cloudflare Realtime TURN, free ≤1000 GB/mo). Capped at 2 publishers. **Own-tab caveat:** a content
+script's `getUserMedia` is governed by the host page's `Permissions-Policy camera`, so a locked-down
+site (maybe Netflix) can block it — handled with a graceful error, not a fight. Original design notes below.
+
+### Popup "create a room" launcher — ✅ built
+Popup tab order is now **Room** (first) / **Watch on this page** (second). The Room tab creates "our
+room" from the extension: ＋ New empty room, or a scanned video / pasted URL → new room (opens
+`WEB_APP_URL` `/r/<name>?src=…&kind=…#k=<secret>`; the page applies `?src` on join then strips it). A
+"Send to an open room instead" checkbox preserves the old deliver-to-open-room flow.
 - **Why:** for people who *don't* use Discord (e.g. a couple watching together), so sixseven is
   self-contained — no separate voice app needed.
 - **Approach (free, on-architecture):** WebRTC **peer-to-peer** media (never through our server).

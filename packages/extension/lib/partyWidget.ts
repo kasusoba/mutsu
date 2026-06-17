@@ -53,6 +53,13 @@ interface WidgetOpts {
   gifSearch: (query: string) => Promise<GifResult[]>;
   /** Personal fun-layer display settings changed. */
   onFunSettings: (s: FunSettings) => void;
+  /** Video call (§17) controls — owned by the controller. */
+  call: {
+    onStart: () => void;
+    onLeave: () => void;
+    onMic: () => void;
+    onCam: () => void;
+  };
 }
 
 type FavGif = GifResult & { q: string };
@@ -80,6 +87,9 @@ export class PartyWidget {
   private gifTab: "search" | "favs" = "search";
   private gifResults: GifResult[] = [];
   private gifFavs: FavGif[] = [];
+  // Video call tiles (§17) — managed imperatively so render() never reloads them.
+  private localTile: HTMLVideoElement | null = null;
+  private remoteTiles = new Map<string, HTMLVideoElement>();
   private state: WidgetState = {
     connected: false,
     members: [],
@@ -141,6 +151,84 @@ export class PartyWidget {
 
   private $(sel: string): HTMLElement | null {
     return this.root?.querySelector(sel) ?? null;
+  }
+
+  // ── video call tiles (§17) — imperative so render() never reloads the videos ─
+
+  /** Show/hide the call section. On close, drop all tiles + the error/hint. */
+  setCallActive(active: boolean): void {
+    const call = this.$(".call");
+    if (call) (call as HTMLElement).hidden = !active;
+    const btn = this.$(".call-btn");
+    if (btn) (btn as HTMLElement).hidden = active;
+    if (!active) {
+      this.setLocalStream(null);
+      for (const id of [...this.remoteTiles.keys()]) this.setRemote(id, null);
+      this.setCallError(null);
+    }
+  }
+
+  setLocalStream(stream: MediaStream | null): void {
+    const tiles = this.$(".call-tiles");
+    if (!tiles) return;
+    if (!stream) {
+      this.localTile?.remove();
+      this.localTile = null;
+      return;
+    }
+    if (!this.localTile) {
+      this.localTile = this.makeTile("local");
+      tiles.prepend(this.localTile);
+    }
+    this.localTile.srcObject = stream;
+  }
+
+  setRemote(id: string, stream: MediaStream | null): void {
+    const tiles = this.$(".call-tiles");
+    if (!tiles) return;
+    if (!stream) {
+      this.remoteTiles.get(id)?.remove();
+      this.remoteTiles.delete(id);
+    } else {
+      let v = this.remoteTiles.get(id);
+      if (!v) {
+        v = this.makeTile("");
+        tiles.append(v);
+        this.remoteTiles.set(id, v);
+      }
+      v.srcObject = stream;
+    }
+    const hint = this.$(".call-hint");
+    if (hint) (hint as HTMLElement).hidden = this.remoteTiles.size > 0;
+  }
+
+  setCallControls(micOn: boolean, camOn: boolean): void {
+    const mic = this.$(".call-mic");
+    if (mic) {
+      mic.textContent = micOn ? "Mute" : "Unmute";
+      mic.classList.toggle("off", !micOn);
+    }
+    const cam = this.$(".call-cam");
+    if (cam) {
+      cam.textContent = camOn ? "Camera off" : "Camera on";
+      cam.classList.toggle("off", !camOn);
+    }
+  }
+
+  setCallError(msg: string | null): void {
+    const el = this.$(".call-error");
+    if (!el) return;
+    el.textContent = msg ?? "";
+    (el as HTMLElement).hidden = !msg;
+  }
+
+  private makeTile(extra: string): HTMLVideoElement {
+    const v = document.createElement("video");
+    v.autoplay = true;
+    v.playsInline = true;
+    v.className = extra ? `ctile ${extra}` : "ctile";
+    if (extra === "local") v.muted = true; // never echo your own mic
+    return v;
   }
 
   /** Paint a range slider's filled portion (WebKit has no fill pseudo) — set the
@@ -352,6 +440,12 @@ export class PartyWidget {
       this.setHidden(true);
     });
     this.$(".leave")?.addEventListener("click", () => this.opts.onLeave());
+
+    // Video call (§17)
+    this.$(".call-btn")?.addEventListener("click", () => this.opts.call.onStart());
+    this.$(".call-mic")?.addEventListener("click", () => this.opts.call.onMic());
+    this.$(".call-cam")?.addEventListener("click", () => this.opts.call.onCam());
+    this.$(".call-leave")?.addEventListener("click", () => this.opts.call.onLeave());
 
     for (const b of this.root?.querySelectorAll<HTMLButtonElement>(".react") ?? []) {
       b.addEventListener("click", () => this.opts.onReact(b.textContent ?? ""));
@@ -743,6 +837,20 @@ export class PartyWidget {
   .sub-result { width:100%; text-align:left; display:flex; flex-direction:column; gap:2px; padding:5px 8px; }
   .sr-title { color:#e7e9ef; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .sr-meta { font-size:10px; color:#9aa0b4; }
+  .call-btn { margin:0 12px 8px; }
+  .call { padding:0 12px 8px; display:flex; flex-direction:column; gap:6px; }
+  .call[hidden] { display:none; }
+  .call-tiles { display:flex; flex-direction:column; gap:6px; }
+  .ctile { width:100%; aspect-ratio:4/3; border-radius:8px; background:#000; object-fit:cover; display:block; }
+  .ctile.local { transform:scaleX(-1); }
+  .call-hint { font-size:11px; color:#9aa0b4; text-align:center; }
+  .call-hint[hidden] { display:none; }
+  .call-error { font-size:11px; color:#ff5d6c; }
+  .call-error[hidden] { display:none; }
+  .call-controls { display:flex; gap:6px; }
+  .call-controls button { flex:1; }
+  .call-mic.off, .call-cam.off { border-color:#ff5d6c; color:#ff5d6c; }
+  .call-leave { color:#ff5d6c; border-color:#3a2730; }
   .foot { display:flex; gap:8px; padding:10px 12px; border-top:1px solid #2a2e3d; }
   button { font:inherit; font-size:12px; cursor:pointer; border-radius:8px; padding:6px 10px; border:1px solid #2a2e3d; background:#1f2230; color:#e7e9ef; }
   button:hover { border-color:#6c7cff; }
@@ -758,6 +866,17 @@ export class PartyWidget {
   <div class="head"><span class="dot off"></span><span class="logo">sixseven</span><span class="code">${esc(this.opts.code)}</span></div>
   <div class="status">connecting…</div>
   <div class="reacts">${REACT_EMOJIS.map((e) => `<button class="react">${e}</button>`).join("")}</div>
+  <button class="call-btn">📹 Start video call</button>
+  <div class="call" hidden>
+    <div class="call-tiles"></div>
+    <div class="call-hint">waiting for someone to turn their camera on…</div>
+    <div class="call-error" hidden></div>
+    <div class="call-controls">
+      <button class="call-mic">Mute</button>
+      <button class="call-cam">Camera off</button>
+      <button class="call-leave">Leave</button>
+    </div>
+  </div>
   <div class="section-title">Members <span class="mcount">0</span></div>
   <ul class="members"></ul>
   <div class="section-title">Chat</div>

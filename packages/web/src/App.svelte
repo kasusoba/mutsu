@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Intent, MemberStatus, Mode, SyncMessage } from "@sixseven/protocol";
+  import type { Intent, MemberStatus, Mode, SourceKind, SyncMessage } from "@sixseven/protocol";
   import {
     Captions,
     Crown,
@@ -299,6 +299,24 @@
       extMissing = document.documentElement.getAttribute("data-sixseven-ext") !== "1";
     }, 2000);
     return () => clearTimeout(id);
+  });
+
+  // A room created from the extension popup can carry a source to play
+  // (`?src=…&kind=…`). Apply it once we've joined (and may control), then strip
+  // the query so a reload/reconnect doesn't re-fire it.
+  let appliedInitialSrc = false;
+  $effect(() => {
+    if (appliedInitialSrc || !room || !room.self || !loc.initialSrc) return;
+    if (!room.canControl) return;
+    appliedInitialSrc = true;
+    if (!room.sync?.src) {
+      const clean = extractSourceUrl(loc.initialSrc).url ?? loc.initialSrc;
+      const kind = (loc.initialKind as SourceKind | undefined) ?? classifySource(clean);
+      room.setSource(clean, kind);
+    }
+    const u = new URL(window.location.href);
+    u.search = "";
+    history.replaceState({}, "", u.pathname + u.hash);
   });
 
   // While joined, tag <html> with the room name so the extension picker popup

@@ -11,17 +11,55 @@
  */
 
 import { browser } from "wxt/browser";
+import { WEB_APP_URL } from "../../lib/config";
 import {
   type AreYouRoomReply,
-  collectFrameCandidates,
   type DeliverSourceReply,
   type MediaCandidate,
   PICKER_DELIVER,
   PICKER_PING,
+  collectFrameCandidates,
   rankCandidates,
 } from "../../lib/picker";
 import { icon } from "./icons";
 import { initOwnTab } from "./ownTab";
+
+const ROOM_ADJ = ["cosy", "late", "rainy", "neon", "velvet", "amber", "quiet", "lucky"];
+const ROOM_NOUN = ["sofa", "lounge", "den", "balcony", "cinema", "loft", "patio", "booth"];
+
+/** A URL-safe capability secret — mirrors the web's `makeSecret` (§10). */
+function makeSecret(bytes = 16): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return btoa(String.fromCharCode(...buf))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/** A friendly default room name — mirrors the web's `makeRoomName`. */
+function makeRoomName(): string {
+  const buf = new Uint8Array(3);
+  crypto.getRandomValues(buf);
+  const adj = ROOM_ADJ[(buf[0] ?? 0) % ROOM_ADJ.length] ?? "cosy";
+  const noun = ROOM_NOUN[(buf[1] ?? 0) % ROOM_NOUN.length] ?? "lounge";
+  return `${adj}-${noun}-${10 + ((buf[2] ?? 0) % 90)}`;
+}
+
+/** Open a freshly-minted room on the deployed web page, optionally pre-loaded
+ *  with a source (`?src=…&kind=…`, applied once the creator joins). */
+function createRoom(url?: string, kind?: "embed" | "direct"): void {
+  const name = makeRoomName();
+  let path = `/r/${encodeURIComponent(name)}`;
+  if (url) {
+    const q = new URLSearchParams({ src: url });
+    if (kind) q.set("kind", kind);
+    path += `?${q.toString()}`;
+  }
+  path += `#k=${makeSecret()}`;
+  browser.tabs.create({ url: WEB_APP_URL + path });
+  window.close();
+}
 
 interface RoomTab {
   tabId: number;
@@ -38,6 +76,33 @@ const noticeEl = $("notice");
 const manualInput = $<HTMLInputElement>("manualUrl");
 const manualSend = $<HTMLButtonElement>("manualSend");
 const rescanBtn = $<HTMLButtonElement>("rescan");
+const newRoomBtn = $<HTMLButtonElement>("newRoom");
+const sendModeRow = $("sendModeRow");
+const sendModeBox = $<HTMLInputElement>("sendMode");
+const queueModeRow = $("queueModeRow");
+
+/** "Send to an open room" is only possible when a room tab exists AND the user
+ *  ticked the box; otherwise the popup creates a brand-new room. */
+function sendMode(): boolean {
+  return rooms.length > 0 && sendModeBox.checked;
+}
+
+/** A picked source (a scanned video or the paste box): create a room with it, or
+ *  send it to an open room — depending on the mode. */
+function act(url: string, kind?: "embed" | "direct"): void {
+  if (sendMode()) deliver(url, kind);
+  else createRoom(url, kind);
+}
+
+/** Reflect the current mode: show send-related controls only when sending. */
+function updateModeUI(): void {
+  sendModeRow.hidden = rooms.length === 0;
+  if (rooms.length === 0) sendModeBox.checked = false;
+  const sending = sendMode();
+  targetRow.hidden = !sending;
+  queueModeRow.hidden = !sending;
+  manualSend.textContent = sending ? "send" : "new room";
+}
 
 let rooms: RoomTab[] = [];
 // Last scan's failure reason (if any), shown to the user instead of being
@@ -130,17 +195,12 @@ function renderCandidates(candidates: MediaCandidate[]): void {
       tag.textContent = "playing";
       btn.append(tag);
     }
-    btn.addEventListener("click", () => deliver(c.url, c.kind));
+    btn.addEventListener("click", () => act(c.url, c.kind));
     listEl.append(btn);
   }
 }
 
 function renderRooms(): void {
-  if (!rooms.length) {
-    targetRow.hidden = true;
-    return;
-  }
-  targetRow.hidden = false;
   roomSelect.replaceChildren();
   for (const r of rooms) {
     const opt = document.createElement("option");
@@ -148,6 +208,7 @@ function renderRooms(): void {
     opt.textContent = r.room;
     roomSelect.append(opt);
   }
+  updateModeUI(); // show/hide the send-mode controls based on whether rooms exist
 }
 
 async function scanActiveTab(): Promise<MediaCandidate[]> {
@@ -210,14 +271,15 @@ async function discoverRooms(): Promise<RoomTab[]> {
   return found;
 }
 
-manualSend.prepend(icon("send", 14));
 manualSend.addEventListener("click", () => {
   const url = manualInput.value.trim();
-  if (url) deliver(url);
+  if (url) act(url);
 });
 manualInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && manualInput.value.trim()) deliver(manualInput.value.trim());
+  if (e.key === "Enter" && manualInput.value.trim()) act(manualInput.value.trim());
 });
+newRoomBtn.addEventListener("click", () => createRoom());
+sendModeBox.addEventListener("change", updateModeUI);
 
 let scanning = false;
 
@@ -231,13 +293,9 @@ async function refresh(): Promise<void> {
     rooms = found;
     renderRooms();
     renderCandidates(candidates);
-    // Prioritise the most useful problem: a scan error first (we couldn't even
-    // look), then a missing room (we looked but you've nowhere to send it).
-    if (scanError) {
-      notice(scanError, "err");
-    } else if (!rooms.length) {
-      notice("No open sixseven room found. Open & join your room link, then Rescan.", "err");
-    }
+    // Only a scan error is worth surfacing now — "no open room" is no longer a
+    // problem since creating a fresh room is the default action.
+    if (scanError) notice(scanError, "err");
   } catch (e) {
     console.warn("[sixseven] refresh failed", e);
     notice(`Something went wrong: ${(e as Error)?.message ?? "unknown error"}`, "err");
@@ -266,7 +324,9 @@ async function initTabs(forced?: "here" | "room"): Promise<void> {
   };
   for (const t of tabs) t.addEventListener("click", () => select(t.dataset.tab ?? "here"));
   const saved = (await browser.storage.local.get(TAB_KEY))[TAB_KEY];
-  select(forced ?? (saved === "room" ? "room" : "here"));
+  // Default to the Room tab (creating "our room" is the main flow); only fall
+  // back to "Watch on this page" when explicitly forced or last used.
+  select(forced ?? (saved === "here" ? "here" : "room"));
 }
 
 async function main(): Promise<void> {
@@ -276,7 +336,9 @@ async function main(): Promise<void> {
     console.warn("[sixseven] own-tab init failed", e);
     return false;
   });
-  initTabs(inParty ? "here" : undefined).catch((e) => console.warn("[sixseven] tabs init failed", e));
+  initTabs(inParty ? "here" : undefined).catch((e) =>
+    console.warn("[sixseven] tabs init failed", e),
+  );
   await refresh();
   // Players (and room pages) often mount their <video>/attribute asynchronously,
   // after the popup's first scan. If we came up empty, retry once shortly — this

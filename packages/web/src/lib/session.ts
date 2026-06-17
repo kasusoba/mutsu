@@ -8,6 +8,10 @@
 export interface RoomLocation {
   room: string;
   secret: string | null;
+  /** Optional source to auto-set once joined (`?src=…&kind=…`) — used when the
+   *  extension popup creates a room pre-loaded with a picked video (§12). */
+  initialSrc?: string;
+  initialKind?: string;
 }
 
 export function readRoomLocation(): RoomLocation {
@@ -21,7 +25,11 @@ export function readRoomLocation(): RoomLocation {
     const [k, v] = part.split("=");
     if (k === "k" && v) secret = decodeURIComponent(v);
   }
-  return { room, secret };
+
+  const q = new URLSearchParams(window.location.search);
+  const initialSrc = q.get("src") ?? undefined;
+  const initialKind = q.get("kind") ?? undefined;
+  return { room, secret, initialSrc, initialKind };
 }
 
 /** A URL-safe capability secret (SPEC §10) — goes in the `#k=` fragment. */

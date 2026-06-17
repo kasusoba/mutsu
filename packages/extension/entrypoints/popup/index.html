@@ -79,6 +79,23 @@
       }
       .panel[hidden] { display: none; }
       #herePanel { overflow: auto; }
+      .create-room {
+        display: block;
+        width: calc(100% - 24px);
+        margin: 12px 12px 4px;
+        padding: 9px;
+        font: inherit;
+        font-weight: 600;
+        text-align: center;
+        color: #fff;
+        background: var(--accent);
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .create-room:hover {
+        filter: brightness(1.08);
+      }
       .room-bar {
         display: flex;
         align-items: center;
@@ -419,31 +436,33 @@
       <span class="brand">sixseven</span>
     </header>
     <div class="tabs" role="tablist">
+      <button class="tab" id="tabRoom" data-tab="room">Room</button>
       <button class="tab" id="tabHere" data-tab="here">Watch on this page</button>
-      <button class="tab" id="tabRoom" data-tab="room">Send to a room</button>
-    </div>
-
-    <div class="panel" id="herePanel">
-      <div id="ownTab"></div>
     </div>
 
     <div class="panel" id="roomPanel" hidden>
+      <button class="create-room" id="newRoom">＋ New empty room</button>
       <div class="room-bar">
-        <span class="room-bar-label">Videos on this page</span>
+        <span class="room-bar-label" id="listLabel">Or start with a video here</span>
         <span class="muted" id="count"></span>
         <button class="rescan" id="rescan" title="Scan this tab again">Rescan</button>
       </div>
-      <label class="queue-mode"><input type="checkbox" id="queueMode" /> Add to the room's queue instead of playing now</label>
+      <div id="list"></div>
+      <div class="manual">
+        <input id="manualUrl" type="text" placeholder="…or paste an embed/source URL" />
+        <button class="send" id="manualSend">new room</button>
+      </div>
+      <label class="queue-mode" id="sendModeRow" hidden><input type="checkbox" id="sendMode" /> Send to an open room instead of creating one</label>
       <div class="target" id="targetRow" hidden>
         <label for="room">send to</label>
         <select id="room"></select>
       </div>
-      <div id="list"></div>
+      <label class="queue-mode" id="queueModeRow" hidden><input type="checkbox" id="queueMode" /> Add to the room's queue instead of playing now</label>
       <div id="notice"></div>
-      <div class="manual">
-        <input id="manualUrl" type="text" placeholder="…or paste an embed/source URL" />
-        <button class="send" id="manualSend">send</button>
-      </div>
+    </div>
+
+    <div class="panel" id="herePanel" hidden>
+      <div id="ownTab"></div>
     </div>
     <script type="module" src="./main.ts"></script>
   </body>

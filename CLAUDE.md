@@ -182,15 +182,24 @@ viewers (for groups not on Discord). **Peer-to-peer media — never through the 
 only relays SDP/ICE text. `setCam {on}` flips `Member.cam` (broadcast in presence), capped at
 `CALL_CAP=2` (over-cap → `error {code:"call_full"}`); `rtcSignal {to/from,data}` relays signals to one
 peer. Core in `web/src/lib/call.ts` (`CallManager`, perfect-negotiation, transport-agnostic for own-tab
-reuse); UI `components/VideoCall.svelte` + top-bar **Call** button. ICE via the member-gated
-`rtc.iceServers` op (`server/src/rtc.ts`): Cloudflare STUN always (free); TURN only if
-`TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are set (Cloudflare Realtime TURN, free ≤1000 GB/mo, creds minted
-server-side) → STUN-only otherwise. **Own-tab (Netflix path) is NOT built** — caveat: a content
-script's `getUserMedia` is subject to the host page's `Permissions-Policy camera`, so locked-down sites
-may block it (verify first).
+reuse); ICE via the member-gated `rtc.iceServers` op (`server/src/rtc.ts`): Cloudflare STUN always
+(free); TURN only if `TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are set (Cloudflare Realtime TURN, free ≤1000
+GB/mo, creds minted server-side) → STUN-only otherwise. **Two surfaces, same `CallManager` (duplicated
+in `web/src/lib/call.ts` + `extension/lib/call.ts` — protocol is DOM-free so can't host it):** the
+**room page** (`components/VideoCall.svelte` + top-bar **Call** button, signaling over `RoomClient`),
+and **own-tab** (the widget's **Start video call** + tiles, signaling over `RoomSocket`; tiles managed
+imperatively so the widget re-render never reloads them). Caveat for own-tab: a content script's
+`getUserMedia` is subject to the host page's `Permissions-Policy camera`, so a locked-down site (maybe
+Netflix) can block it — we surface a clear "site may block it" error rather than fight it.
 
-**Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam"); own-tab video call
-(verify camera Permissions-Policy first); popup "create a room" launcher.
+**Popup room launcher — built:** the popup's first tab is now **Room** (second = "Watch on this page").
+The Room tab *creates* "our room" from the extension: **＋ New empty room**, or pick a scanned video /
+paste a URL → **new room** (opens the deployed web room at `/r/<name>?src=…&kind=…#k=<secret>`; the page
+applies `?src` once the creator joins, then strips the query — see `session.ts`/App effect). A **Send to
+an open room instead** checkbox (shown only when a room tab is open) keeps the old deliver-to-open-room
+flow. Web base URL = `WEB_APP_URL` in `extension/lib/config.ts`.
+
+**Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam").
 
 **Deploy reminder:** new server features (own-tab `observer`, fun-layer `say`/`gif`, M2 mode, subtitle
 ordering, video-call `setCam`/`rtcSignal`/`rtc.iceServers`) only work once `npx partykit deploy` +

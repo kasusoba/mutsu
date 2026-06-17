@@ -15,6 +15,10 @@ import { browser } from "wxt/browser";
  */
 export const PARTYKIT_HOST = "sixseven.kasusoba.partykit.dev";
 
+/** The deployed web room page — where the popup opens a freshly-created room
+ *  (`/r/<name>#k=<secret>`). Change this if you host the room page elsewhere. */
+export const WEB_APP_URL = "https://sixseven-3kc.pages.dev";
+
 // popup ↔ source-tab content script (own-tab mode)
 export const MSG_START_OWNTAB = "sixseven:start-owntab" as const;
 export const MSG_STOP_OWNTAB = "sixseven:stop-owntab" as const;
@@ -33,8 +37,17 @@ export interface FunSettings {
   bubbles: boolean;
   speed: "fast" | "normal" | "slow";
 }
-export const FUN_DEFAULTS: FunSettings = { reactions: true, gifs: true, bubbles: true, speed: "normal" };
-export const FUN_SPEED_MULT: Record<FunSettings["speed"], number> = { fast: 0.5, normal: 1, slow: 1.9 };
+export const FUN_DEFAULTS: FunSettings = {
+  reactions: true,
+  gifs: true,
+  bubbles: true,
+  speed: "normal",
+};
+export const FUN_SPEED_MULT: Record<FunSettings["speed"], number> = {
+  fast: 0.5,
+  normal: 1,
+  slow: 1.9,
+};
 const FUN_KEY = "sixseven:funSettings";
 
 export async function loadFunSettings(): Promise<FunSettings> {
@@ -102,7 +115,9 @@ export function sameSource(a: string, b: string): boolean {
   try {
     const ua = new URL(a);
     const ub = new URL(b);
-    return ua.origin === ub.origin && ua.pathname.replace(/\/$/, "") === ub.pathname.replace(/\/$/, "");
+    return (
+      ua.origin === ub.origin && ua.pathname.replace(/\/$/, "") === ub.pathname.replace(/\/$/, "")
+    );
   } catch {
     return a === b;
   }
