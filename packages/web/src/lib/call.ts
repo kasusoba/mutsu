@@ -1,15 +1,15 @@
 /**
  * CallManager (§17) — the WebRTC half of the video call. Transport-agnostic: it
  * knows nothing about PartyKit or Svelte, just "send this signal to that peer"
- * and "here's a remote stream." That keeps it reusable (the own-tab widget can
- * drive it through its own socket later).
+ * and "here's a remote stream." Reused by the room page and the own-tab widget.
  *
- * Media is peer-to-peer — it never touches the server (§2 holds; the server only
- * relays tiny SDP/ICE text via `rtcSignal`). Capped to a 1:1 call server-side.
+ * Asymmetric by design: you `join()` to connect + receive WITHOUT a camera, then
+ * optionally `enableCamera()` to publish. So one person can broadcast while the
+ * other just watches. Media is peer-to-peer — never through the server (§2); the
+ * server only relays SDP/ICE text via `rtcSignal`. Capped to 1:1 server-side.
  *
- * Uses the WHATWG "perfect negotiation" pattern so both sides can fire offers at
- * once (both flip their camera on) without glare: one peer is "polite" (yields on
- * collision), decided deterministically by id so the two sides always disagree.
+ * Uses the WHATWG "perfect negotiation" pattern so either side can (re)offer at
+ * any time — e.g. when someone turns their camera on mid-call — without glare.
  */
 
 import type { MemberId } from "@sixseven/protocol";
@@ -33,35 +33,52 @@ export class CallManager {
   localStream: MediaStream | null = null;
   private peers = new Map<MemberId, Peer>();
   private ice: RTCIceServer[] = [];
+  private iceReady = false;
 
   constructor(
     private readonly self: MemberId,
     /** Relay an opaque signal to one peer (→ room.rtcSignal). */
     private readonly send: SignalSender,
-    /** Fetch ICE servers (STUN/TURN) once, lazily, at media start. */
+    /** Fetch ICE servers (STUN/TURN) once, lazily, on join. */
     private readonly getIce: () => Promise<RTCIceServer[]>,
     /** A peer's remote stream arrived (or null when the peer drops). */
     private readonly onStream: (id: MemberId, stream: MediaStream | null) => void,
   ) {}
 
-  /** Acquire camera + mic. Rejects if the user denies permission. */
-  async startMedia(): Promise<MediaStream> {
+  /** Join the call (receive-only until you enable your camera). Loads ICE. */
+  async join(): Promise<void> {
+    if (!this.iceReady) {
+      this.ice = await this.getIce().catch(() => [] as RTCIceServer[]);
+      this.iceReady = true;
+    }
+  }
+
+  /** Turn the local camera + mic on: acquire media and push tracks to every
+   *  peer (perfect negotiation renegotiates). Rejects if permission is denied. */
+  async enableCamera(): Promise<MediaStream> {
     if (!this.localStream) {
       this.localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      this.ice = await this.getIce().catch(() => [] as RTCIceServer[]);
+      for (const peer of this.peers.values()) this.addLocalTracks(peer);
     }
     return this.localStream;
   }
 
-  /** Reconcile which peers we should be connected to (other members with cam on). */
+  private addLocalTracks(peer: Peer): void {
+    if (!this.localStream) return;
+    const sent = new Set(peer.pc.getSenders().map((s) => s.track));
+    for (const track of this.localStream.getTracks()) {
+      if (!sent.has(track)) peer.pc.addTrack(track, this.localStream); // → negotiationneeded
+    }
+  }
+
+  /** Reconcile which peers we should be connected to (other in-call members). */
   setPeers(ids: MemberId[]): void {
     const want = new Set(ids);
     for (const id of [...this.peers.keys()]) if (!want.has(id)) this.drop(id);
     for (const id of want) if (!this.peers.has(id)) this.connect(id);
   }
 
-  private connect(id: MemberId): Peer | null {
-    if (!this.localStream) return null;
+  private connect(id: MemberId): Peer {
     const pc = new RTCPeerConnection({ iceServers: this.ice });
     // Deterministic, opposite roles on the two ends: lexicographically-greater id
     // is the polite one (yields on offer collision).
@@ -74,7 +91,9 @@ export class CallManager {
     };
     this.peers.set(id, peer);
 
-    for (const track of this.localStream.getTracks()) pc.addTrack(track, this.localStream);
+    // Publish if our camera is already on; a watch-only peer adds nothing and
+    // simply answers recvonly when the other side offers.
+    this.addLocalTracks(peer);
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) this.send(id, { candidate: candidate.toJSON() });
@@ -102,9 +121,7 @@ export class CallManager {
 
   /** Apply an inbound signal from a peer (perfect negotiation). */
   async handleSignal(from: MemberId, data: unknown): Promise<void> {
-    let peer = this.peers.get(from);
-    if (!peer) peer = this.connect(from) ?? undefined;
-    if (!peer) return; // no local media yet — our own setPeers will reinitiate
+    const peer = this.peers.get(from) ?? this.connect(from);
     const { pc } = peer;
     const { description, candidate } = (data ?? {}) as Signal;
     try {
@@ -136,6 +153,11 @@ export class CallManager {
   }
   setCamEnabled(on: boolean): void {
     for (const t of this.localStream?.getVideoTracks() ?? []) t.enabled = on;
+  }
+
+  /** Do we have a live camera/mic acquired (i.e. are we publishing)? */
+  get publishing(): boolean {
+    return this.localStream !== null;
   }
 
   private drop(id: MemberId): void {

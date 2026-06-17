@@ -55,7 +55,8 @@ interface WidgetOpts {
   onFunSettings: (s: FunSettings) => void;
   /** Video call (§17) controls — owned by the controller. */
   call: {
-    onStart: () => void;
+    onJoin: () => void;
+    onCamera: () => void;
     onLeave: () => void;
     onMic: () => void;
     onCam: () => void;
@@ -155,17 +156,53 @@ export class PartyWidget {
 
   // ── video call tiles (§17) — imperative so render() never reloads the videos ─
 
-  /** Show/hide the call section. On close, drop all tiles + the error/hint. */
+  /** Show/hide the floating call window. On close, drop all tiles + error. */
   setCallActive(active: boolean): void {
-    const call = this.$(".call");
-    if (call) (call as HTMLElement).hidden = !active;
+    const float = this.$(".call-float");
+    if (float) (float as HTMLElement).hidden = !active;
     const btn = this.$(".call-btn");
     if (btn) (btn as HTMLElement).hidden = active;
-    if (!active) {
+    if (active) {
+      this.setPublishing(false);
+    } else {
       this.setLocalStream(null);
       for (const id of [...this.remoteTiles.keys()]) this.setRemote(id, null);
       this.setCallError(null);
     }
+  }
+
+  /** Toggle controls between "watching" (just a camera button) and "publishing". */
+  setPublishing(on: boolean): void {
+    const cam = this.$(".call-camera");
+    if (cam) (cam as HTMLElement).hidden = on;
+    const mic = this.$(".call-mic");
+    if (mic) (mic as HTMLElement).hidden = !on;
+    const c = this.$(".call-cam");
+    if (c) (c as HTMLElement).hidden = !on;
+    if (!on) this.setLocalStream(null);
+  }
+
+  /** Drag the floating call window (it's position:fixed in the shadow host). */
+  private dragFloat(e: PointerEvent): void {
+    const float = this.$(".call-float") as HTMLElement | null;
+    if (!float) return;
+    const r = float.getBoundingClientRect();
+    const offX = e.clientX - r.left;
+    const offY = e.clientY - r.top;
+    const move = (ev: PointerEvent) => {
+      const x = Math.max(0, Math.min(window.innerWidth - r.width, ev.clientX - offX));
+      const y = Math.max(0, Math.min(window.innerHeight - r.height, ev.clientY - offY));
+      float.style.left = `${x}px`;
+      float.style.top = `${y}px`;
+      float.style.right = "auto";
+      float.style.bottom = "auto";
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   }
 
   setLocalStream(stream: MediaStream | null): void {
@@ -442,33 +479,39 @@ export class PartyWidget {
     this.$(".leave")?.addEventListener("click", () => this.opts.onLeave());
 
     // Video call (§17)
-    this.$(".call-btn")?.addEventListener("click", () => this.opts.call.onStart());
+    this.$(".call-btn")?.addEventListener("click", () => this.opts.call.onJoin());
+    this.$(".call-camera")?.addEventListener("click", () => this.opts.call.onCamera());
     this.$(".call-mic")?.addEventListener("click", () => this.opts.call.onMic());
     this.$(".call-cam")?.addEventListener("click", () => this.opts.call.onCam());
     this.$(".call-leave")?.addEventListener("click", () => this.opts.call.onLeave());
+    this.$(".cf-grip")?.addEventListener("pointerdown", (e) => this.dragFloat(e as PointerEvent));
+
+    // Accordion: one section open at a time.
+    const sections: Record<string, string> = {
+      members: ".members",
+      chat: ".chat-wrap",
+      gifs: ".gifs",
+      subs: ".subs",
+      fun: ".fun",
+    };
+    const openSection = (name: string | null) => {
+      for (const [n, sel] of Object.entries(sections)) {
+        const body = this.$(sel);
+        if (body) (body as HTMLElement).hidden = n !== name;
+        this.$(`.sec-h[data-sec="${n}"]`)?.classList.toggle("open", n === name);
+      }
+    };
+    for (const h of this.root?.querySelectorAll<HTMLElement>(".sec-h") ?? []) {
+      h.addEventListener("click", () => {
+        openSection(h.classList.contains("open") ? null : (h.dataset.sec ?? null));
+      });
+    }
 
     for (const b of this.root?.querySelectorAll<HTMLButtonElement>(".react") ?? []) {
       b.addEventListener("click", () => this.opts.onReact(b.textContent ?? ""));
     }
 
-    this.$(".sub-toggle")?.addEventListener("click", () => {
-      const body = this.$(".subs");
-      const t = this.$(".sub-toggle");
-      if (!body) return;
-      const show = (body as HTMLElement).hidden;
-      (body as HTMLElement).hidden = !show;
-      t?.classList.toggle("open", show);
-    });
-
     // ── GIF picker ──
-    this.$(".gif-toggle")?.addEventListener("click", () => {
-      const body = this.$(".gifs");
-      const t = this.$(".gif-toggle");
-      if (!body) return;
-      const show = (body as HTMLElement).hidden;
-      (body as HTMLElement).hidden = !show;
-      t?.classList.toggle("open", show);
-    });
     const gifQ = this.$(".gif-q") as HTMLInputElement | null;
     const setGifTab = (tab: "search" | "favs") => {
       this.gifTab = tab;
@@ -500,14 +543,6 @@ export class PartyWidget {
     });
 
     // ── Display (fun-layer) settings ──
-    this.$(".fun-toggle")?.addEventListener("click", () => {
-      const body = this.$(".fun");
-      const t = this.$(".fun-toggle");
-      if (!body) return;
-      const show = (body as HTMLElement).hidden;
-      (body as HTMLElement).hidden = !show;
-      t?.classList.toggle("open", show);
-    });
     const applyFun = () => {
       const s: FunSettings = {
         reactions: (this.$(".fun-react") as HTMLInputElement)?.checked ?? true,
@@ -838,8 +873,18 @@ export class PartyWidget {
   .sr-title { color:#e7e9ef; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .sr-meta { font-size:10px; color:#9aa0b4; }
   .call-btn { margin:0 12px 8px; }
-  .call { padding:0 12px 8px; display:flex; flex-direction:column; gap:6px; }
-  .call[hidden] { display:none; }
+  /* accordion */
+  .sec-h { width:100%; background:none; border:none; border-radius:0; padding:8px 12px 4px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#9aa0b4; display:flex; gap:6px; align-items:center; justify-content:space-between; cursor:pointer; }
+  .sec-h:hover { color:#e7e9ef; }
+  .sec-h .caret { margin-left:auto; transition:transform .15s; }
+  .sec-h.open .caret { transform:rotate(180deg); }
+  .sec-b[hidden] { display:none; }
+  .chat-wrap { display:flex; flex-direction:column; }
+  /* video call — floats in its own draggable window, separate from the panel */
+  .call-float { position:fixed; right:16px; bottom:16px; width:200px; display:flex; flex-direction:column; gap:6px; padding:6px; border-radius:12px; background:rgba(14,15,19,.92); border:1px solid #2a2e3d; box-shadow:0 8px 28px rgba(0,0,0,.55); }
+  .call-float[hidden] { display:none; }
+  .cf-grip { font-size:11px; color:#9aa0b4; cursor:grab; user-select:none; touch-action:none; padding:1px 2px; }
+  .cf-grip:active { cursor:grabbing; }
   .call-tiles { display:flex; flex-direction:column; gap:6px; }
   .ctile { width:100%; aspect-ratio:4/3; border-radius:8px; background:#000; object-fit:cover; display:block; }
   .ctile.local { transform:scaleX(-1); }
@@ -849,6 +894,8 @@ export class PartyWidget {
   .call-error[hidden] { display:none; }
   .call-controls { display:flex; gap:6px; }
   .call-controls button { flex:1; }
+  .call-controls button[hidden] { display:none; }
+  .call-camera { border-color:#6c7cff; color:#6c7cff; }
   .call-mic.off, .call-cam.off { border-color:#ff5d6c; color:#ff5d6c; }
   .call-leave { color:#ff5d6c; border-color:#3a2730; }
   .foot { display:flex; gap:8px; padding:10px 12px; border-top:1px solid #2a2e3d; }
@@ -866,30 +913,22 @@ export class PartyWidget {
   <div class="head"><span class="dot off"></span><span class="logo">sixseven</span><span class="code">${esc(this.opts.code)}</span></div>
   <div class="status">connecting…</div>
   <div class="reacts">${REACT_EMOJIS.map((e) => `<button class="react">${e}</button>`).join("")}</div>
-  <button class="call-btn">📹 Start video call</button>
-  <div class="call" hidden>
-    <div class="call-tiles"></div>
-    <div class="call-hint">waiting for someone to turn their camera on…</div>
-    <div class="call-error" hidden></div>
-    <div class="call-controls">
-      <button class="call-mic">Mute</button>
-      <button class="call-cam">Camera off</button>
-      <button class="call-leave">Leave</button>
-    </div>
+  <button class="call-btn">📹 Video call</button>
+  <button class="sec-h" data-sec="members">Members <span class="mcount">0</span><span class="caret">▾</span></button>
+  <ul class="members sec-b" hidden></ul>
+  <button class="sec-h open" data-sec="chat">Chat<span class="caret">▾</span></button>
+  <div class="chat-wrap sec-b">
+    <ul class="chat"></ul>
+    <form class="chat-form"><input class="chat-in" type="text" placeholder="Message…" maxlength="500" /><button class="chat-send">Send</button></form>
   </div>
-  <div class="section-title">Members <span class="mcount">0</span></div>
-  <ul class="members"></ul>
-  <div class="section-title">Chat</div>
-  <ul class="chat"></ul>
-  <form class="chat-form"><input class="chat-in" type="text" placeholder="Message…" maxlength="500" /><button class="chat-send">Send</button></form>
-  <button class="section-title gif-toggle">GIF<span class="caret">▾</span></button>
-  <div class="gifs" hidden>
+  <button class="sec-h" data-sec="gifs">GIF<span class="caret">▾</span></button>
+  <div class="gifs sec-b" hidden>
     <div class="gif-tabs"><button class="gt gt-search on">Search</button><button class="gt gt-favs">★ Favs</button></div>
     <div class="gif-row"><input class="gif-q" type="text" placeholder="Search GIFs…" /><button class="gif-go">Go</button></div>
     <div class="gif-grid"></div>
   </div>
-  <button class="section-title sub-toggle">Subtitles<span class="caret">▾</span></button>
-  <div class="subs" hidden>
+  <button class="sec-h" data-sec="subs">Subtitles<span class="caret">▾</span></button>
+  <div class="subs sec-b" hidden>
     <div class="sub-row">
       <button class="sub-upload">Upload .srt / .vtt</button>
       <span class="sub-label">no subtitles</span>
@@ -926,8 +965,8 @@ export class PartyWidget {
     </div>
     <input class="sub-file" type="file" accept=".srt,.vtt" hidden />
   </div>
-  <button class="section-title fun-toggle">Display<span class="caret">▾</span></button>
-  <div class="fun" hidden>
+  <button class="sec-h" data-sec="fun">Display<span class="caret">▾</span></button>
+  <div class="fun sec-b" hidden>
     <label><input type="checkbox" class="fun-react" /> Reactions</label>
     <label><input type="checkbox" class="fun-gif" /> GIFs</label>
     <label><input type="checkbox" class="fun-bub" /> Chat bubbles</label>
@@ -937,6 +976,18 @@ export class PartyWidget {
     <button class="hide" title="Hide the widget (controls stay in the popup)">Hide</button>
     <button class="copy">Copy code</button>
     <button class="leave">Leave</button>
+  </div>
+</div>
+<div class="call-float" hidden>
+  <div class="cf-grip">⠿ Call</div>
+  <div class="call-tiles"></div>
+  <div class="call-hint">waiting for someone else to join…</div>
+  <div class="call-error" hidden></div>
+  <div class="call-controls">
+    <button class="call-camera">📹 Camera</button>
+    <button class="call-mic" hidden>Mute</button>
+    <button class="call-cam" hidden>Camera off</button>
+    <button class="call-leave">Leave</button>
   </div>
 </div>`;
   }

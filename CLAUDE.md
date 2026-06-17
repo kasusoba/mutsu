@@ -177,20 +177,22 @@ drag-to-reorder, play/remove/clear) with auto-advance when a video ends (players
 `ended` bridge msg) and a room-level autoplay toggle. The picker can add to the queue too. Server:
 `queue`/`currentId`/`autoplay`, control-mode gated. Room-page modes only; own-tab ignores it.
 
-**Video call (§17) — built (room page), pending live test:** optional 1:1 webcam/mic between
+**Video call (§17) — built (room page + own-tab), pending live test:** optional 1:1 webcam/mic between
 viewers (for groups not on Discord). **Peer-to-peer media — never through the server** (§2): the DO
-only relays SDP/ICE text. `setCam {on}` flips `Member.cam` (broadcast in presence), capped at
-`CALL_CAP=2` (over-cap → `error {code:"call_full"}`); `rtcSignal {to/from,data}` relays signals to one
-peer. Core in `web/src/lib/call.ts` (`CallManager`, perfect-negotiation, transport-agnostic for own-tab
-reuse); ICE via the member-gated `rtc.iceServers` op (`server/src/rtc.ts`): Cloudflare STUN always
+only relays SDP/ICE text. **Asymmetric:** `setCall {on}` flips `Member.inCall` (capped at `CALL_CAP=2`,
+over-cap → `error {code:"call_full"}`) = "join to watch"; turning the camera on is a separate
+`enableCamera()`+`setCam {on}` (display hint). So one can broadcast while the other just watches —
+STUN-only unaffected. `rtcSignal {to/from,data}` relays signals to one peer. Core in
+`web/src/lib/call.ts` (`CallManager`, perfect-negotiation, renegotiates when a camera turns on; ICE via the member-gated `rtc.iceServers` op (`server/src/rtc.ts`): Cloudflare STUN always
 (free); TURN only if `TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are set (Cloudflare Realtime TURN, free ≤1000
 GB/mo, creds minted server-side) → STUN-only otherwise. **Two surfaces, same `CallManager` (duplicated
 in `web/src/lib/call.ts` + `extension/lib/call.ts` — protocol is DOM-free so can't host it):** the
-**room page** (`components/VideoCall.svelte` + top-bar **Call** button, signaling over `RoomClient`),
-and **own-tab** (the widget's **Start video call** + tiles, signaling over `RoomSocket`; tiles managed
-imperatively so the widget re-render never reloads them). Caveat for own-tab: a content script's
-`getUserMedia` is subject to the host page's `Permissions-Policy camera`, so a locked-down site (maybe
-Netflix) can block it — we surface a clear "site may block it" error rather than fight it.
+**room page** (`components/VideoCall.svelte` + top-bar **Call** button; a **draggable + resizable**
+corner dock), and **own-tab** (signaling over `RoomSocket`; tiles in a **separate draggable floating
+window** `.call-float`, and the widget panel's sections are an **accordion** — one open at a time —
+so it's not bloated; tiles managed imperatively so re-render never reloads them). Caveat for own-tab:
+a content script's `getUserMedia` is subject to the host page's `Permissions-Policy camera`, so a
+locked-down site (maybe Netflix) can block it — we surface a clear "site may block it" error.
 
 **Popup room launcher — built:** the popup's first tab is now **Room** (second = "Watch on this page").
 The Room tab *creates* "our room" from the extension: **＋ New empty room**, or pick a scanned video /

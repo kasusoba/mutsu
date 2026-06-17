@@ -167,6 +167,9 @@ export class RoomSocket {
     this.send({ type: "say", kind, text });
   }
   // ── video call (§17) ──────────────────────────────────────────────────────
+  setCall(on: boolean): void {
+    this.send({ type: "setCall", on });
+  }
   setCam(on: boolean): void {
     this.send({ type: "setCam", on });
   }

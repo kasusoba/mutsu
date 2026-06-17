@@ -30,8 +30,12 @@ export interface Member {
   id: MemberId;
   name: string;
   status: MemberStatus;
-  /** True while this member is publishing webcam/mic to the video call (§17).
-   *  Drives who others open a WebRTC peer connection to. Capped server-side. */
+  /** In the video call (§17): receiving, and reachable for WebRTC. Drives who
+   *  others open a peer connection to. Capped server-side. You can be in the
+   *  call WITHOUT publishing — "join to watch". */
+  inCall?: boolean;
+  /** Publishing webcam video (a display hint; the actual stream is discovered
+   *  peer-to-peer). Independent of `inCall` — off = in the call but watching. */
   cam?: boolean;
 }
 
@@ -207,9 +211,18 @@ export interface SetAutoplayMessage {
   on: boolean;
 }
 
-/** Video call (§17): turn this viewer's webcam/mic publishing on or off. The
- *  server caps the number of simultaneous publishers (free-tier safety) and
- *  rejects an over-cap `on` with an `error` (code `call_full`). */
+/** Video call (§17): join or leave the call. Joining connects you to the other
+ *  in-call members and lets you receive their video — you don't have to publish.
+ *  The server caps simultaneous participants (free-tier safety) and rejects an
+ *  over-cap `on` with an `error` (code `call_full`). */
+export interface SetCallMessage {
+  type: "setCall";
+  on: boolean;
+}
+
+/** Video call (§17): a display hint — am I publishing my camera right now. Does
+ *  not gate anything (the stream is discovered peer-to-peer); just lets others
+ *  show a "camera off" state. Requires being in the call. */
 export interface SetCamMessage {
   type: "setCam";
   on: boolean;
@@ -242,6 +255,7 @@ export type ClientMessage =
   | QueueReorderMessage
   | PlayNextMessage
   | SetAutoplayMessage
+  | SetCallMessage
   | SetCamMessage
   | RtcSignalMessage;
 

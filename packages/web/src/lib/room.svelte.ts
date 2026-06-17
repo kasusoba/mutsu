@@ -187,7 +187,12 @@ export class RoomClient {
   }
 
   // ── video call (§17) ──────────────────────────────────────────────────────
-  /** Turn this viewer's webcam/mic publishing on or off (capped server-side). */
+  /** Join or leave the call (capped server-side). Joining lets you receive even
+   *  without publishing — turn the camera on separately with `setCam`. */
+  setCall(on: boolean): void {
+    this.send({ type: "setCall", on });
+  }
+  /** Camera-publishing display hint (only meaningful while in the call). */
   setCam(on: boolean): void {
     this.send({ type: "setCam", on });
   }

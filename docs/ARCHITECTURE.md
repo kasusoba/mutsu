@@ -599,10 +599,16 @@ Optional webcam/mic between viewers, for groups who don't use Discord. **The med
 peer-to-peer — it never touches the server** (§2 holds): the DO only relays tiny SDP/ICE
 text. Capped to a **1:1 call** so it stays trivially inside free tiers.
 
+**Asymmetric: join to watch, camera optional.** Being *in* the call (`setCall`) is separate from
+*publishing* (`setCam`) — you can join and watch someone without turning your own camera on. The
+`CallManager` connects to every in-call peer and only adds local tracks once you `enableCamera()`
+(perfect negotiation renegotiates when you do). So one person can broadcast while the other just
+watches — and STUN-only is unaffected (it's per-connection NAT traversal, independent of direction).
+
 **Presence + signaling (server↔client):**
-- `setCam {on}` → the server flips `Member.cam` and rebroadcasts `members`, enforcing a
-  **2-publisher cap** (`CALL_CAP`); an over-cap `on` is refused with `error {code:"call_full"}`.
-  So "who's in the call" rides the normal presence list.
+- `setCall {on}` → flips `Member.inCall` and rebroadcasts `members`, enforcing a **2-participant cap**
+  (`CALL_CAP`); over-cap is refused with `error {code:"call_full"}`. Peers connect to whoever is
+  `inCall`. `setCam {on}` is a display-only camera hint (no cap; requires being in the call).
 - `rtcSignal {to, data}` (client→server) is relayed verbatim to that one peer as
   `rtcSignal {from, data}` (server→client). `data` is an opaque SDP description or ICE
   candidate — the server never inspects it (control-plane text, no media).
@@ -623,10 +629,15 @@ to 1,000 GB/mo); the server mints short-lived credentials so the key stays serve
 category from the watched source — §3 (no DRM/ripping/forging of the *content*) is unaffected.
 
 **Two surfaces, one core.** The same `CallManager` drives both the **room page**
-(`components/VideoCall.svelte`, signaling over `RoomClient`) and **own-tab** (the widget's call
-section, signaling over `RoomSocket`; tiles managed imperatively so the widget's `render()` never
-reloads the `<video>`s). The class is duplicated in `web/src/lib/call.ts` + `extension/lib/call.ts`
-because `@sixseven/protocol` is DOM-free and can't host DOM-typed code — keep the twins in sync.
+(`components/VideoCall.svelte`, signaling over `RoomClient`) and **own-tab** (signaling over
+`RoomSocket`; tiles managed imperatively so the widget's `render()` never reloads the `<video>`s).
+The class is duplicated in `web/src/lib/call.ts` + `extension/lib/call.ts` because
+`@sixseven/protocol` is DOM-free and can't host DOM-typed code — keep the twins in sync.
+
+**UI.** Room page: a **draggable + resizable** corner dock (grip to move, corner handle to resize).
+Own-tab: the webcam tiles live in a **separate draggable floating window** (`.call-float`), not in
+the widget panel — and the panel's sections are an **accordion** (one open at a time) so it stays
+compact. Both surfaces: join shows others immediately; a **Camera** button publishes when you want.
 
 **Own-tab caveat:** a content script's `getUserMedia` runs under the *host page's*
 `Permissions-Policy`, so a site that disallows `camera`/`microphone` (possibly Netflix) can block the

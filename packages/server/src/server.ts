@@ -75,14 +75,15 @@ interface StoredMember {
   name: string;
   status: MemberStatus;
   joinSeq: number;
-  /** Publishing webcam/mic to the video call (§17). Ephemeral — reset on (re)join. */
+  /** In the video call (§17), and publishing-camera hint. Ephemeral — reset on (re)join. */
+  inCall?: boolean;
   cam?: boolean;
 }
 
 const STORAGE_KEY = "room";
 const LOG_CAP = 100;
-/** Max simultaneous webcam publishers per room (§17). Caps the WebRTC mesh and
- *  keeps any TURN egress trivially inside the free tier. 2 = a 1:1 call. */
+/** Max simultaneous video-call participants per room (§17). Caps the WebRTC mesh
+ *  and keeps any TURN egress trivially inside the free tier. 2 = a 1:1 call. */
 const CALL_CAP = 2;
 /** A control whose time jumps more than this (s) from the live position is a
  *  user scrub, not drift — only those get logged as "seeked" (SPEC §11). */
@@ -306,6 +307,8 @@ export default class RoomServer implements Party.Server {
         return void this.handlePlayNext(sender, msg.afterId);
       case "setAutoplay":
         return void this.handleSetAutoplay(sender, msg.on);
+      case "setCall":
+        return this.handleSetCall(sender, msg.on);
       case "setCam":
         return this.handleSetCam(sender, msg.on);
       case "rtcSignal":
@@ -533,19 +536,29 @@ export default class RoomServer implements Party.Server {
 
   // ── video call (§17) ──────────────────────────────────────────────────────
 
-  /** Turn this member's webcam publishing on/off, capped at CALL_CAP publishers.
-   *  Just presence — broadcast `cam` in the member list so peers connect/drop;
-   *  the actual SDP/ICE handshake is relayed peer-to-peer via `rtcSignal`. */
-  private handleSetCam(sender: Party.Connection, on: boolean): void {
+  /** Join/leave the call, capped at CALL_CAP participants. Joining just flips
+   *  presence — peers open a connection to whoever is `inCall`; the SDP/ICE
+   *  handshake is relayed peer-to-peer via `rtcSignal`. You can be in the call
+   *  without publishing (watch-only); leaving also clears the camera hint. */
+  private handleSetCall(sender: Party.Connection, on: boolean): void {
     const member = this.s.members[sender.id];
     if (!member) return;
-    if (on && !member.cam) {
-      const publishing = Object.values(this.s.members).filter((m) => m.cam).length;
-      if (publishing >= CALL_CAP) {
+    if (on && !member.inCall) {
+      const inCall = Object.values(this.s.members).filter((m) => m.inCall).length;
+      if (inCall >= CALL_CAP) {
         this.reject(sender, "call_full", `Video chat is limited to ${CALL_CAP} people in a room.`);
         return;
       }
     }
+    member.inCall = Boolean(on);
+    if (!on) member.cam = false;
+    this.broadcastMembers();
+  }
+
+  /** Camera-publishing display hint (no cap; only meaningful while in the call). */
+  private handleSetCam(sender: Party.Connection, on: boolean): void {
+    const member = this.s.members[sender.id];
+    if (!member || !member.inCall) return;
     member.cam = Boolean(on);
     this.broadcastMembers();
   }
@@ -865,6 +878,7 @@ export default class RoomServer implements Party.Server {
       id,
       name: m.name,
       status: m.status,
+      inCall: m.inCall ?? false,
       cam: m.cam ?? false,
     }));
     return { type: "members", list };

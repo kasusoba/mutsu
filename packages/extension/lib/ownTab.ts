@@ -105,7 +105,8 @@ export class OwnTabController {
         this.reactions.setMult(FUN_SPEED_MULT[s.speed]);
       },
       call: {
-        onStart: () => void this.startCall(),
+        onJoin: () => void this.joinCall(),
+        onCamera: () => void this.turnOnCamera(),
         onLeave: () => this.leaveCall(),
         onMic: () => this.toggleMic(),
         onCam: () => this.toggleCam(),
@@ -392,7 +393,8 @@ export class OwnTabController {
 
   // ── video call (§17) — peer-to-peer, signaled over the room socket ──────────
 
-  private async startCall(): Promise<void> {
+  /** Join the call to watch — no camera yet (turn it on separately). */
+  private async joinCall(): Promise<void> {
     if (this.call) return;
     const self = this.socket.self;
     if (!self) return; // not connected yet — nothing to attach to
@@ -404,34 +406,40 @@ export class OwnTabController {
       async () => (await this.socket.iceServers()).iceServers,
       (id, stream) => this.widget.setRemote(id, stream),
     );
+    await this.call.join();
+    this.socket.setCall(true);
+    this.widget.setCallActive(true);
+    this.widget.setPublishing(false);
+    this.reconcileCall();
+  }
+
+  /** Turn the local camera/mic on (publish). May be blocked by the site. */
+  private async turnOnCamera(): Promise<void> {
+    if (!this.call) return;
     try {
-      const local = await this.call.startMedia();
+      const local = await this.call.enableCamera();
       this.socket.setCam(true);
-      this.widget.setCallActive(true);
       this.widget.setLocalStream(local);
+      this.widget.setPublishing(true);
       this.widget.setCallControls(true, true);
-      this.reconcileCall();
     } catch {
-      this.call?.stop();
-      this.call = null;
-      this.widget.setCallActive(true); // keep the panel open to show the error
       this.widget.setCallError("Couldn't access camera/mic — the site may block it.");
     }
   }
 
   private leaveCall(): void {
     if (!this.call) return;
-    this.socket.setCam(false);
+    this.socket.setCall(false);
     this.call.stop();
     this.call = null;
     this.widget.setCallActive(false);
   }
 
-  /** Connect to / drop peers as their cameras come and go. */
+  /** Connect to / drop peers as people join and leave the call. */
   private reconcileCall(): void {
     if (!this.call) return;
     const self = this.socket.self;
-    const ids = this.socket.members.filter((m) => m.id !== self && m.cam).map((m) => m.id);
+    const ids = this.socket.members.filter((m) => m.id !== self && m.inCall).map((m) => m.id);
     this.call.setPeers(ids);
   }
 
@@ -444,6 +452,7 @@ export class OwnTabController {
   private toggleCam(): void {
     this.camOn = !this.camOn;
     this.call?.setCamEnabled(this.camOn);
+    this.socket.setCam(this.camOn);
     this.widget.setCallControls(this.micOn, this.camOn);
   }
 
