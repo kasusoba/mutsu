@@ -34,6 +34,7 @@ import {
 } from "@sixseven/protocol";
 import type * as Party from "partykit/server";
 import { searchGifs } from "./gif.ts";
+import { type RtcEnv, iceServers } from "./rtc.ts";
 import { QuotaError, type SubEnv, downloadSubtitle, searchSubtitles } from "./subtitles/index.ts";
 
 /** Per-room authoritative state, persisted under a single storage key. */
@@ -74,10 +75,15 @@ interface StoredMember {
   name: string;
   status: MemberStatus;
   joinSeq: number;
+  /** Publishing webcam/mic to the video call (§17). Ephemeral — reset on (re)join. */
+  cam?: boolean;
 }
 
 const STORAGE_KEY = "room";
 const LOG_CAP = 100;
+/** Max simultaneous webcam publishers per room (§17). Caps the WebRTC mesh and
+ *  keeps any TURN egress trivially inside the free tier. 2 = a 1:1 call. */
+const CALL_CAP = 2;
 /** A control whose time jumps more than this (s) from the live position is a
  *  user scrub, not drift — only those get logged as "seeked" (SPEC §11). */
 const SEEK_LOG_THRESHOLD = 2;
@@ -216,6 +222,12 @@ export default class RoomServer implements Party.Server {
         const results = await searchGifs(String(body.query ?? ""), env.GIPHY_API_KEY);
         return this.json({ results }, 200, cors);
       }
+      if (body.op === "rtc.iceServers") {
+        // Video call (§17): STUN always, TURN if keys are configured. Keys stay
+        // server-side; the client only ever sees the resolved ICE-server list.
+        const servers = await iceServers(this.room.env as unknown as RtcEnv);
+        return this.json({ iceServers: servers }, 200, cors);
+      }
       return this.json({ error: "unknown op" }, 400, cors);
     } catch (e) {
       if (e instanceof QuotaError)
@@ -294,6 +306,10 @@ export default class RoomServer implements Party.Server {
         return void this.handlePlayNext(sender, msg.afterId);
       case "setAutoplay":
         return void this.handleSetAutoplay(sender, msg.on);
+      case "setCam":
+        return this.handleSetCam(sender, msg.on);
+      case "rtcSignal":
+        return this.handleRtcSignal(sender, msg.to, msg.data);
     }
   }
 
@@ -513,6 +529,33 @@ export default class RoomServer implements Party.Server {
     this.s.autoplay = Boolean(on);
     this.broadcastPlaylist();
     await this.persist();
+  }
+
+  // ── video call (§17) ──────────────────────────────────────────────────────
+
+  /** Turn this member's webcam publishing on/off, capped at CALL_CAP publishers.
+   *  Just presence — broadcast `cam` in the member list so peers connect/drop;
+   *  the actual SDP/ICE handshake is relayed peer-to-peer via `rtcSignal`. */
+  private handleSetCam(sender: Party.Connection, on: boolean): void {
+    const member = this.s.members[sender.id];
+    if (!member) return;
+    if (on && !member.cam) {
+      const publishing = Object.values(this.s.members).filter((m) => m.cam).length;
+      if (publishing >= CALL_CAP) {
+        this.reject(sender, "call_full", `Video chat is limited to ${CALL_CAP} people in a room.`);
+        return;
+      }
+    }
+    member.cam = Boolean(on);
+    this.broadcastMembers();
+  }
+
+  /** Relay a WebRTC signal (SDP/ICE) to ONE peer. The server never inspects the
+   *  payload — control-plane text only, no media (the call is peer-to-peer). */
+  private handleRtcSignal(sender: Party.Connection, to: MemberId, data: unknown): void {
+    if (typeof to !== "string" || !this.s.members[to] || !this.s.members[sender.id]) return;
+    const peer = this.room.getConnection(to);
+    if (peer) this.send(peer, { type: "rtcSignal", from: sender.id, data });
   }
 
   private async handleQueueReorder(
@@ -822,6 +865,7 @@ export default class RoomServer implements Party.Server {
       id,
       name: m.name,
       status: m.status,
+      cam: m.cam ?? false,
     }));
     return { type: "members", list };
   }

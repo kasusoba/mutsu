@@ -177,11 +177,26 @@ drag-to-reorder, play/remove/clear) with auto-advance when a video ends (players
 `ended` bridge msg) and a room-level autoplay toggle. The picker can add to the queue too. Server:
 `queue`/`currentId`/`autoplay`, control-mode gated. Room-page modes only; own-tab ignores it.
 
-**Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam").
+**Video call (§17) — built (room page), pending live test:** optional 1:1 webcam/mic between
+viewers (for groups not on Discord). **Peer-to-peer media — never through the server** (§2): the DO
+only relays SDP/ICE text. `setCam {on}` flips `Member.cam` (broadcast in presence), capped at
+`CALL_CAP=2` (over-cap → `error {code:"call_full"}`); `rtcSignal {to/from,data}` relays signals to one
+peer. Core in `web/src/lib/call.ts` (`CallManager`, perfect-negotiation, transport-agnostic for own-tab
+reuse); UI `components/VideoCall.svelte` + top-bar **Call** button. ICE via the member-gated
+`rtc.iceServers` op (`server/src/rtc.ts`): Cloudflare STUN always (free); TURN only if
+`TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are set (Cloudflare Realtime TURN, free ≤1000 GB/mo, creds minted
+server-side) → STUN-only otherwise. **Own-tab (Netflix path) is NOT built** — caveat: a content
+script's `getUserMedia` is subject to the host page's `Permissions-Policy camera`, so locked-down sites
+may block it (verify first).
+
+**Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam"); own-tab video call
+(verify camera Permissions-Policy first); popup "create a room" launcher.
 
 **Deploy reminder:** new server features (own-tab `observer`, fun-layer `say`/`gif`, M2 mode, subtitle
-ordering) only work once `npx partykit deploy` + `env push` are run — the extension always talks to the
-deployed server, and the deployed web is a static build (redeploy via `wrangler pages deploy`).
+ordering, video-call `setCam`/`rtcSignal`/`rtc.iceServers`) only work once `npx partykit deploy` +
+`env push` are run — the extension always talks to the deployed server, and the deployed web is a static
+build (redeploy via `wrangler pages deploy`). The video call works STUN-only with no env; TURN turns on
+once `TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are in `.env` and `env push`ed.
 
 **Known caveats:** YouTube/own-tab need a user gesture per viewer for *sound* (autoplay policy;
 muted autostart works); anti-devtools / sandboxed-iframe sites may not be hookable (we don't fight

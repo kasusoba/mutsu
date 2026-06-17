@@ -30,6 +30,9 @@ export interface Member {
   id: MemberId;
   name: string;
   status: MemberStatus;
+  /** True while this member is publishing webcam/mic to the video call (§17).
+   *  Drives who others open a WebRTC peer connection to. Capped server-side. */
+  cam?: boolean;
 }
 
 /** Activity-log event kinds (SPEC §11) — meaningful events only, never play/pause/seek. */
@@ -204,6 +207,24 @@ export interface SetAutoplayMessage {
   on: boolean;
 }
 
+/** Video call (§17): turn this viewer's webcam/mic publishing on or off. The
+ *  server caps the number of simultaneous publishers (free-tier safety) and
+ *  rejects an over-cap `on` with an `error` (code `call_full`). */
+export interface SetCamMessage {
+  type: "setCam";
+  on: boolean;
+}
+
+/** Video call (§17): WebRTC signaling relayed to ONE peer. `data` is an opaque
+ *  SDP description or ICE candidate — the server never inspects it, it just
+ *  forwards control-plane text (no media bytes ever touch the server). */
+export interface RtcSignalMessage {
+  type: "rtcSignal";
+  /** Target member (client→server) — whom to relay this to. */
+  to: MemberId;
+  data: unknown;
+}
+
 export type ClientMessage =
   | JoinMessage
   | SetSourceMessage
@@ -220,7 +241,9 @@ export type ClientMessage =
   | PlayItemMessage
   | QueueReorderMessage
   | PlayNextMessage
-  | SetAutoplayMessage;
+  | SetAutoplayMessage
+  | SetCamMessage
+  | RtcSignalMessage;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Server → client
@@ -283,8 +306,16 @@ export interface GateMessage {
 /** Connection refused or an action rejected. */
 export interface ErrorMessage {
   type: "error";
-  code: "unauthorized" | "not_admitted" | "forbidden" | "bad_message";
+  code: "unauthorized" | "not_admitted" | "forbidden" | "bad_message" | "call_full";
   message: string;
+}
+
+/** Video call (§17): an inbound WebRTC signal relayed FROM a peer. Mirror of the
+ *  client→server `rtcSignal`, with `from` set to the originating member. */
+export interface RtcSignalServerMessage {
+  type: "rtcSignal";
+  from: MemberId;
+  data: unknown;
 }
 
 /** A fanned-out ephemeral fun-layer event (§14) — reaction/chat/gif. Carries the
@@ -315,7 +346,8 @@ export type ServerMessage =
   | GateMessage
   | ErrorMessage
   | EventMessage
-  | PlaylistMessage;
+  | PlaylistMessage
+  | RtcSignalServerMessage;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Helpers

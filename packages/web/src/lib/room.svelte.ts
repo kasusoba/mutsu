@@ -40,6 +40,11 @@ export class RoomClient {
    *  flow through a callback the UI subscribes to, not into reactive state. */
   onEvent: (e: EventMessage) => void = () => {};
 
+  /** Video call (§17): an inbound WebRTC signal from a peer (SDP/ICE). */
+  onRtcSignal: (from: MemberId, data: unknown) => void = () => {};
+  /** Video call: server refused turning the camera on (room at the publisher cap). */
+  onCallError: (message: string) => void = () => {};
+
   /** Derived: this member's own presence row (status etc.). */
   me = $derived(this.members.find((m) => m.id === this.self) ?? null);
   /** Derived: am I allowed to issue privileged actions right now? */
@@ -103,11 +108,15 @@ export class RoomClient {
         this.playlistCurrentId = msg.currentId;
         this.autoplay = msg.autoplay;
         break;
+      case "rtcSignal":
+        this.onRtcSignal(msg.from, msg.data);
+        break;
       case "error":
         console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
         // A bad/expired invite key is terminal — without it the server keeps
         // closing us and PartySocket reconnects forever. Stop and tell the user.
         if (msg.code === "unauthorized") this.failAuth();
+        else if (msg.code === "call_full") this.onCallError(msg.message);
         break;
     }
   }
@@ -175,6 +184,20 @@ export class RoomClient {
   }
   playNext(afterId?: string | null): void {
     this.send({ type: "playNext", afterId });
+  }
+
+  // ── video call (§17) ──────────────────────────────────────────────────────
+  /** Turn this viewer's webcam/mic publishing on or off (capped server-side). */
+  setCam(on: boolean): void {
+    this.send({ type: "setCam", on });
+  }
+  /** Relay a WebRTC signal (SDP/ICE) to one peer. */
+  rtcSignal(to: MemberId, data: unknown): void {
+    this.send({ type: "rtcSignal", to, data });
+  }
+  /** Fetch the ICE servers (STUN, + TURN if the room is configured for it). */
+  iceServers(): Promise<{ iceServers: RTCIceServer[] }> {
+    return this.proxy("rtc.iceServers", {});
   }
 
   // ── subtitle proxy (SPEC §13) ─────────────────────────────────────────────

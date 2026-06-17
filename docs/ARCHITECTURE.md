@@ -583,3 +583,37 @@ a not-ready client reports stalled → soft-pause); off → it loads paused. A m
 **drag-to-reorder** (`queueReorder {id,toIndex}`), play/remove, an autoplay checkbox, and clear.
 The extension picker can also add to the queue (a "Add to queue" toggle → `PickSourceMessage.queue`).
 Own-tab ignores the playlist (single-source-per-site).
+
+## 17. Video call (WebRTC, peer-to-peer)
+
+Optional webcam/mic between viewers, for groups who don't use Discord. **The media is
+peer-to-peer — it never touches the server** (§2 holds): the DO only relays tiny SDP/ICE
+text. Capped to a **1:1 call** so it stays trivially inside free tiers.
+
+**Presence + signaling (server↔client):**
+- `setCam {on}` → the server flips `Member.cam` and rebroadcasts `members`, enforcing a
+  **2-publisher cap** (`CALL_CAP`); an over-cap `on` is refused with `error {code:"call_full"}`.
+  So "who's in the call" rides the normal presence list.
+- `rtcSignal {to, data}` (client→server) is relayed verbatim to that one peer as
+  `rtcSignal {from, data}` (server→client). `data` is an opaque SDP description or ICE
+  candidate — the server never inspects it (control-plane text, no media).
+
+**Media path:** the client (`web/src/lib/call.ts`, `CallManager`) opens an `RTCPeerConnection`
+to each other member whose `cam` is on, using the **WHATWG perfect-negotiation** pattern (a
+deterministic polite/impolite role by id so simultaneous offers don't glare). It's
+transport-agnostic (takes a "send signal" callback + "get ICE servers"), so the own-tab widget
+can reuse it later. UI: `components/VideoCall.svelte` — corner webcam tiles + mic/cam/leave,
+toggled by the top-bar **Call** button.
+
+**ICE servers (`rtc.iceServers` op, member-gated, `server/src/rtc.ts`):** STUN is always
+`stun.cloudflare.com` (free, unlimited) — enough for most home-network pairs to connect P2P.
+**TURN** (the relay for NAT-blocked peers, the only piece that costs egress) is added only when
+the room env carries `TURN_KEY_ID` + `TURN_KEY_API_TOKEN` (Cloudflare Realtime TURN — free up
+to 1,000 GB/mo); the server mints short-lived credentials so the key stays server-side. No keys
+→ STUN-only, still works for the common case. Webcam streams between friends are a separate
+category from the watched source — §3 (no DRM/ripping/forging of the *content*) is unaffected.
+
+**Scope:** room-page only for now. Own-tab (the Netflix/DRM path) is a follow-up and carries a
+real caveat: a content script's `getUserMedia` is subject to the host page's `Permissions-Policy`,
+so sites that disallow `camera`/`microphone` could block an in-page call — needs verification
+before building.

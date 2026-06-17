@@ -100,6 +100,51 @@ load + restyle + time-shift subs over a real synced video — pending browser ru
 
 **Milestone:** a friend goes from install → watching in sync in under 2 minutes.
 
+## Backlog — captured ideas (not yet scheduled)
+
+### Video call (webcam + mic between viewers) — 🟡 built (room page, v1+v1.1), pending live test
+**Status:** room-page 1:1 call shipped — `setCam`/`rtcSignal` signaling on the DO, `CallManager`
+(perfect negotiation) in `web/src/lib/call.ts`, `VideoCall.svelte` UI, top-bar **Call** button.
+STUN-only by default (free); TURN auto-enables when `TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are env-set
+(Cloudflare Realtime TURN, free ≤1000 GB/mo). Capped at 2 publishers. **Own-tab (Netflix) call still
+TODO** — and may be blocked by the host page's `Permissions-Policy camera` (verify before building).
+Original design notes below.
+- **Why:** for people who *don't* use Discord (e.g. a couple watching together), so sixseven is
+  self-contained — no separate voice app needed.
+- **Approach (free, on-architecture):** WebRTC **peer-to-peer** media (never through our server).
+  **Signaling** (SDP/ICE exchange) rides the existing PartyKit DO as new message types
+  (`rtc-offer`/`rtc-answer`/`rtc-ice`) — tiny control-plane JSON, same category as `sync`.
+  **STUN** = `stun.cloudflare.com` (free, unlimited). **TURN** fallback (only when P2P is blocked)
+  = Cloudflare Realtime TURN, **free up to 1,000 GB/mo** (a couple's usage is a rounding error).
+- **Hard cap = the safety valve:** gate video to **≤2 publishers per room** so the mesh never goes
+  O(N²) and TURN egress stays trivially inside the free tier. Bump later only if we ever choose to pay.
+- **Key constraint:** for the Netflix/DRM use case the call must live in the **own-tab widget**, not
+  just the room page — those viewers never load the web room. So design the call to work over the
+  own-tab `RoomSocket`/widget, not only `RoomClient`/room page.
+- **Start small:** v1 = STUN-only 1:1 on the room page (zero setup, ~85% connect). v1.1 = add free
+  Cloudflare TURN for the NAT-blocked minority. Stays at zero cost throughout. Not DRM-related — webcam
+  streams between friends are a separate category from the watched source (§3 still holds).
+
+### Popup redesign — make the popup a room *launcher*, not just a sender
+- **Now:** popup tab order is "Watch on this page" then "Send to a room"; the room tab only delivers a
+  picked source to an **already-open** room tab.
+- **Want:** **Room tab first**, "Watch on this page" second. The Room tab should *create* "our room"
+  from the extension — flexibly: **make an empty room**, **make a room with a video from this page**, or
+  **send to an existing open room** (today's behavior). Popup mints `name + #k=secret` and opens the
+  deployed room URL; for "with a video" it hands the scanned source to the freshly-opened tab (wait for
+  `data-sixseven-room` then deliver, or carry `?src=` on the URL + a small room-page change).
+- **Framing to honor:** the two tabs really mean **framable source → our (web) room** vs
+  **non-framable/DRM → sync it in place (own-tab)**. Netflix etc. can *only* use the second tab; don't
+  bury it. Consider labels that say so.
+
+### Netflix (and other DRM / non-framable sites) — own-tab only
+- **Room-page embed: never** — Netflix forbids framing (`X-Frame-Options`/`frame-ancestors`) and we
+  don't strip headers (§3); plus DRM. You cannot "send Netflix to the web room."
+- **Own-tab: yes** — each viewer plays Netflix in their own tab on their own account; the extension only
+  reads/sets the native `<video>` clock (play/pause/seek). No decryption/extraction — the Teleparty model,
+  within scope. **Unverified on Netflix specifically** (own-tab tested on embeds, not Netflix); both must
+  manually open the same title on their own accounts.
+
 ---
 
 ### Deliberately out of scope (see ARCHITECTURE.md → Non-goals)
