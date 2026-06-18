@@ -193,6 +193,17 @@ window** `.call-float`, and the widget panel's sections are an **accordion** —
 so it's not bloated; tiles managed imperatively so re-render never reloads them). Caveat for own-tab:
 a content script's `getUserMedia` is subject to the host page's `Permissions-Policy camera`, so a
 locked-down site (maybe Netflix) can block it — we surface a clear "site may block it" error.
+**Ambient auto-join (Discord/Meet):** you don't both click Call — once anyone is `inCall`, the others
+auto-surface + auto-join to *receive*, so turning a camera on just shows up. Web: `App.svelte`
+`showCall`/`callDismissed`; own-tab: `reconcileCall()` (auto-leaves if you were only watching and it
+empties). The dock **minimizes** (web grip chevron / own-tab `cf-min`) and auto-collapses over
+fullscreen. Call buttons use the Lucide video icon (no emoji).
+
+**Own-tab perf fix:** the subtitle + reaction overlays used to run unconditional 60fps rAF loops
+that called `getBoundingClientRect()` every frame — on a heavy SPA (YouTube) that thrashed layout and
+caused lag/buffering *only while in a party*. Now `reactionLayer` only spins the loop while something
+is floating, and `subtitleLayer` skips layout entirely when idle and throttles it to ~5Hz when active
+(`LAYOUT_INTERVAL_MS`). Don't reintroduce a per-frame rect read.
 
 **Popup room launcher — built:** the popup's first tab is now **Room** (second = "Watch on this page").
 The Room tab *creates* "our room" from the extension: **＋ New empty room**, or pick a scanned video /

@@ -67,6 +67,10 @@ type FavGif = GifResult & { q: string };
 const GIF_FAV_KEY = "sixseven:gifFavs";
 
 const REACT_EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "😢", "🎉"];
+/** Inline Lucide "video" icon (matches the web's lucide-svelte + popup icons.ts)
+ *  so the call buttons use our icon language, not an emoji. */
+const VIDEO_ICON =
+  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px;margin-right:6px"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>';
 
 const POS_KEY = "sixseven:widgetPos";
 const HIDDEN_KEY = "sixseven:widgetHidden";
@@ -91,6 +95,9 @@ export class PartyWidget {
   // Video call tiles (§17) — managed imperatively so render() never reloads them.
   private localTile: HTMLVideoElement | null = null;
   private remoteTiles = new Map<string, HTMLVideoElement>();
+  private callCollapsed = false;
+  /** fullscreenchange handler — kept so we can detach it on destroy. */
+  private fsHandler: (() => void) | null = null;
   private state: WidgetState = {
     connected: false,
     members: [],
@@ -116,6 +123,21 @@ export class PartyWidget {
     this.root = host.attachShadow({ mode: "open" });
     this.root.innerHTML = this.template();
     (document.body ?? document.documentElement).append(host);
+
+    // The browser only paints elements inside the fullscreen subtree, so when the
+    // site goes fullscreen we re-parent our host into the fullscreen element (the
+    // subtitle/reaction layers do the same) — otherwise the widget vanishes and
+    // its controls become unreachable. We also tuck the webcam away by default,
+    // since it's intrusive over a fullscreen video.
+    this.fsHandler = () => {
+      const h = this.host;
+      if (!h) return;
+      const fs = document.fullscreenElement;
+      const parent = fs ?? document.body ?? document.documentElement;
+      if (parent && h.parentElement !== parent) parent.appendChild(h);
+      if (fs) this.setCallCollapsed(true);
+    };
+    document.addEventListener("fullscreenchange", this.fsHandler);
 
     this.wire();
     await this.restorePosition();
@@ -143,6 +165,8 @@ export class PartyWidget {
   }
 
   destroy(): void {
+    if (this.fsHandler) document.removeEventListener("fullscreenchange", this.fsHandler);
+    this.fsHandler = null;
     this.host?.remove();
     this.host = null;
     this.root = null;
@@ -163,12 +187,24 @@ export class PartyWidget {
     const btn = this.$(".call-btn");
     if (btn) (btn as HTMLElement).hidden = active;
     if (active) {
+      // Expand to show the call — unless we're in fullscreen, where the webcam
+      // overlay is intrusive (keep it tucked; the user can expand from the grip).
+      this.setCallCollapsed(Boolean(document.fullscreenElement));
       this.setPublishing(false);
     } else {
       this.setLocalStream(null);
       for (const id of [...this.remoteTiles.keys()]) this.setRemote(id, null);
       this.setCallError(null);
     }
+  }
+
+  /** Minimize the call float to just its grip bar — a one-click way to tuck the
+   *  webcam away (it's intrusive over fullscreen video). */
+  setCallCollapsed(c: boolean): void {
+    this.callCollapsed = c;
+    this.$(".call-float")?.classList.toggle("collapsed", c);
+    const btn = this.$(".cf-min");
+    if (btn) btn.textContent = c ? "▸" : "▾";
   }
 
   /** Toggle controls between "watching" (just a camera button) and "publishing". */
@@ -485,6 +521,9 @@ export class PartyWidget {
     this.$(".call-cam")?.addEventListener("click", () => this.opts.call.onCam());
     this.$(".call-leave")?.addEventListener("click", () => this.opts.call.onLeave());
     this.$(".cf-grip")?.addEventListener("pointerdown", (e) => this.dragFloat(e as PointerEvent));
+    const min = this.$(".cf-min");
+    min?.addEventListener("pointerdown", (e) => e.stopPropagation()); // don't drag
+    min?.addEventListener("click", () => this.setCallCollapsed(!this.callCollapsed));
 
     // Accordion: one section open at a time.
     const sections: Record<string, string> = {
@@ -883,8 +922,11 @@ export class PartyWidget {
   /* video call — floats in its own draggable window, separate from the panel */
   .call-float { position:fixed; right:16px; bottom:16px; width:200px; display:flex; flex-direction:column; gap:6px; padding:6px; border-radius:12px; background:rgba(14,15,19,.92); border:1px solid #2a2e3d; box-shadow:0 8px 28px rgba(0,0,0,.55); }
   .call-float[hidden] { display:none; }
-  .cf-grip { font-size:11px; color:#9aa0b4; cursor:grab; user-select:none; touch-action:none; padding:1px 2px; }
+  .cf-grip { display:flex; align-items:center; gap:4px; font-size:11px; color:#9aa0b4; cursor:grab; user-select:none; touch-action:none; padding:1px 2px; }
   .cf-grip:active { cursor:grabbing; }
+  .cf-min { margin-left:auto; min-width:0; flex:0 0 auto; padding:0 5px; line-height:1.4; background:transparent; border:none; color:#9aa0b4; cursor:pointer; }
+  .cf-min:hover { color:#fff; }
+  .call-float.collapsed .call-tiles, .call-float.collapsed .call-hint, .call-float.collapsed .call-error, .call-float.collapsed .call-controls { display:none; }
   .call-tiles { display:flex; flex-direction:column; gap:6px; }
   .ctile { width:100%; aspect-ratio:4/3; border-radius:8px; background:#000; object-fit:cover; display:block; }
   .ctile.local { transform:scaleX(-1); }
@@ -913,7 +955,7 @@ export class PartyWidget {
   <div class="head"><span class="dot off"></span><span class="logo">sixseven</span><span class="code">${esc(this.opts.code)}</span></div>
   <div class="status">connecting…</div>
   <div class="reacts">${REACT_EMOJIS.map((e) => `<button class="react">${e}</button>`).join("")}</div>
-  <button class="call-btn">📹 Video call</button>
+  <button class="call-btn">${VIDEO_ICON}Video call</button>
   <button class="sec-h" data-sec="members">Members <span class="mcount">0</span><span class="caret">▾</span></button>
   <ul class="members sec-b" hidden></ul>
   <button class="sec-h open" data-sec="chat">Chat<span class="caret">▾</span></button>
@@ -979,12 +1021,12 @@ export class PartyWidget {
   </div>
 </div>
 <div class="call-float" hidden>
-  <div class="cf-grip">⠿ Call</div>
+  <div class="cf-grip">⠿ Call<button class="cf-min" title="Minimize">▾</button></div>
   <div class="call-tiles"></div>
   <div class="call-hint">waiting for someone else to join…</div>
   <div class="call-error" hidden></div>
   <div class="call-controls">
-    <button class="call-camera">📹 Camera</button>
+    <button class="call-camera">${VIDEO_ICON}Camera</button>
     <button class="call-mic" hidden>Mute</button>
     <button class="call-cam" hidden>Camera off</button>
     <button class="call-leave">Leave</button>

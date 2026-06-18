@@ -40,6 +40,8 @@ import { SubtitleLayer } from "./subtitleLayer";
 import { VideoHook } from "./videoHook";
 
 const FAIL_GRACE_MS = 15_000;
+/** Mirror of the server's call cap — don't auto-join past it. */
+const CALL_CAP = 2;
 
 export class OwnTabController {
   private socket: RoomSocket;
@@ -62,6 +64,12 @@ export class OwnTabController {
   private call: CallManager | null = null;
   private micOn = true;
   private camOn = true;
+  /** True when we joined the call only to watch someone else (not via our own
+   *  button / camera) — so we auto-leave once the call empties again. */
+  private autoJoined = false;
+  /** True when we deliberately left a call others are still in — suppresses the
+   *  ambient auto-join until the call empties (so Leave actually sticks). */
+  private callDismissed = false;
   // Fun layer (§14): floating emoji reactions over the site's video.
   private reactions = new ReactionLayer(() => this.hook.videoRect());
   private chatLog: { id: number; name: string; text: string; self: boolean }[] = [];
@@ -105,9 +113,16 @@ export class OwnTabController {
         this.reactions.setMult(FUN_SPEED_MULT[s.speed]);
       },
       call: {
-        onJoin: () => void this.joinCall(),
+        onJoin: () => {
+          this.autoJoined = false; // explicit join → stay until they leave
+          this.callDismissed = false;
+          void this.joinCall();
+        },
         onCamera: () => void this.turnOnCamera(),
-        onLeave: () => this.leaveCall(),
+        onLeave: () => {
+          this.callDismissed = true; // deliberate leave → don't auto-rejoin
+          this.leaveCall();
+        },
         onMic: () => this.toggleMic(),
         onCam: () => this.toggleCam(),
       },
@@ -415,6 +430,9 @@ export class OwnTabController {
 
   /** Turn the local camera/mic on (publish). May be blocked by the site. */
   private async turnOnCamera(): Promise<void> {
+    this.autoJoined = false; // publishing → we're a real participant now
+    this.callDismissed = false;
+    if (!this.call) await this.joinCall(); // camera implies joining the call
     if (!this.call) return;
     try {
       const local = await this.call.enableCamera();
@@ -435,12 +453,26 @@ export class OwnTabController {
     this.widget.setCallActive(false);
   }
 
-  /** Connect to / drop peers as people join and leave the call. */
+  /** Connect to / drop peers as people join and leave the call — and make the
+   *  call ambient (Discord-style): auto-join to receive when someone else is in
+   *  it, auto-leave once it empties if we were only watching. */
   private reconcileCall(): void {
-    if (!this.call) return;
     const self = this.socket.self;
-    const ids = this.socket.members.filter((m) => m.id !== self && m.inCall).map((m) => m.id);
-    this.call.setPeers(ids);
+    const peersInCall = this.socket.members.filter((m) => m.id !== self && m.inCall);
+    const totalInCall = this.socket.members.filter((m) => m.inCall).length;
+    if (peersInCall.length === 0) this.callDismissed = false; // call empty → fresh start
+    if (!this.call) {
+      if (!this.callDismissed && peersInCall.length > 0 && totalInCall < CALL_CAP) {
+        this.autoJoined = true;
+        void this.joinCall();
+      }
+      return;
+    }
+    if (this.autoJoined && peersInCall.length === 0) {
+      this.leaveCall(); // the call we were watching ended → drop our slot
+      return;
+    }
+    this.call.setPeers(peersInCall.map((m) => m.id));
   }
 
   private toggleMic(): void {

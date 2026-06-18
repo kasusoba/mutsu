@@ -11,6 +11,8 @@ export class ReactionLayer {
   private layer: HTMLDivElement;
   private chatbox: HTMLDivElement;
   private raf = 0;
+  /** How many things are floating right now — the rAF loop only runs while > 0. */
+  private live = 0;
   private seq = 0;
   /** Linger multiplier (personal "speed" setting) — scales lifetimes. */
   private mult = 1;
@@ -56,11 +58,34 @@ export class ReactionLayer {
 
   mount(): void {
     (document.body ?? document.documentElement).append(this.host);
+    // No rAF while idle. The loop reads getBoundingClientRect() every frame to
+    // anchor the float region over the video — on a heavy SPA (YouTube) that
+    // forces a full reflow 60×/s. Reactions are rare and ephemeral, so we only
+    // spin the loop while something is actually on screen (`live > 0`).
+  }
+
+  /** Start the position loop if it isn't already running. */
+  private ensureLoop(): void {
+    if (this.raf) return;
     const loop = () => {
+      if (this.live <= 0) {
+        this.raf = 0;
+        return; // nothing floating → stop until the next spawn (no reflow when idle)
+      }
       this.position();
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
+  }
+
+  /** Register a floating element: keep the loop alive until it removes itself. */
+  private hold(el: HTMLElement, ms: number): void {
+    this.live++;
+    this.ensureLoop();
+    setTimeout(() => {
+      el.remove();
+      this.live--;
+    }, ms);
   }
 
   /** Keep the float region over the video (or the viewport if no rect). */
@@ -91,7 +116,7 @@ export class ReactionLayer {
     el.textContent = emoji;
     el.style.left = `${8 + Math.random() * 84}%`;
     this.layer.append(el);
-    setTimeout(() => el.remove(), 2300 * this.mult);
+    this.hold(el, 2300 * this.mult);
   }
 
   /** Float a transient GIF over the video (own-tab). */
@@ -102,7 +127,7 @@ export class ReactionLayer {
     el.alt = "gif";
     el.style.left = `${20 + Math.random() * 60}%`;
     this.layer.append(el);
-    setTimeout(() => el.remove(), 6000 * this.mult);
+    this.hold(el, 6000 * this.mult);
   }
 
   /** Float a transient chat bubble over the video (own-tab). */
@@ -113,7 +138,7 @@ export class ReactionLayer {
     b.textContent = name;
     el.append(b, document.createTextNode(text));
     this.chatbox.append(el);
-    setTimeout(() => el.remove(), 6000 * this.mult);
+    this.hold(el, 6000 * this.mult);
   }
 
   destroy(): void {

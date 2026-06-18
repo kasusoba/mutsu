@@ -1,5 +1,14 @@
 <script lang="ts">
-  import { GripVertical, Mic, MicOff, PhoneOff, Video, VideoOff } from "lucide-svelte";
+  import {
+    ChevronDown,
+    ChevronUp,
+    GripVertical,
+    Mic,
+    MicOff,
+    PhoneOff,
+    Video,
+    VideoOff,
+  } from "lucide-svelte";
   import { onDestroy, onMount } from "svelte";
   import { CallManager } from "../lib/call";
   import type { RoomClient } from "../lib/room.svelte";
@@ -24,6 +33,9 @@
   let dockEl = $state<HTMLElement | null>(null);
   let pos = $state<{ x: number; y: number } | null>(null);
   let width = $state(200);
+  // Minimize to just the grip bar — a way to tuck the webcam out of the way
+  // (it overlays the video, including in fullscreen).
+  let collapsed = $state(false);
 
   onMount(() => {
     const self = room.self ?? "";
@@ -161,47 +173,57 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="grip" onpointerdown={startDrag}>
     <GripVertical size={13} /> <span>Call</span>
+    <button
+      class="mini"
+      onpointerdown={(e) => e.stopPropagation()}
+      onclick={() => (collapsed = !collapsed)}
+      title={collapsed ? "Expand" : "Minimize"}
+    >
+      {#if collapsed}<ChevronUp size={14} />{:else}<ChevronDown size={14} />{/if}
+    </button>
   </div>
 
-  {#if error}<div class="msg">{error}</div>{/if}
+  {#if !collapsed}
+    {#if error}<div class="msg">{error}</div>{/if}
 
-  {#each remotes as r (r.id)}
-    <div class="tile">
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video use:attach={r.stream} autoplay playsinline></video>
-      <span class="name">{nameOf(r.id)}</span>
-    </div>
-  {/each}
+    {#each remotes as r (r.id)}
+      <div class="tile">
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video use:attach={r.stream} autoplay playsinline></video>
+        <span class="name">{nameOf(r.id)}</span>
+      </div>
+    {/each}
 
-  {#if publishing}
-    <div class="tile self" class:camoff={!camOn}>
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video bind:this={localEl} autoplay playsinline muted></video>
-      {#if !camOn}<span class="off-badge"><VideoOff size={20} /></span>{/if}
-      <span class="name">you</span>
-    </div>
-  {/if}
-
-  {#if ready && remotes.length === 0 && !error}
-    <div class="hint">waiting for someone else to join the call…</div>
-  {/if}
-
-  <div class="controls">
     {#if publishing}
-      <button class="cbtn" class:off={!micOn} onclick={toggleMic} title={micOn ? "Mute" : "Unmute"}>
-        {#if micOn}<Mic size={15} />{:else}<MicOff size={15} />{/if}
-      </button>
-      <button class="cbtn" class:off={!camOn} onclick={toggleCam} title={camOn ? "Camera off" : "Camera on"}>
-        {#if camOn}<Video size={15} />{:else}<VideoOff size={15} />{/if}
-      </button>
-    {:else}
-      <button class="cbtn cam-on" onclick={turnOnCamera} title="Turn on your camera"><Video size={15} /> Camera</button>
+      <div class="tile self" class:camoff={!camOn}>
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video bind:this={localEl} autoplay playsinline muted></video>
+        {#if !camOn}<span class="off-badge"><VideoOff size={20} /></span>{/if}
+        <span class="name">you</span>
+      </div>
     {/if}
-    <button class="cbtn end" onclick={leave} title="Leave call"><PhoneOff size={15} /></button>
-  </div>
 
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="resize" onpointerdown={startResize} title="Resize"></div>
+    {#if ready && remotes.length === 0 && !error}
+      <div class="hint">waiting for someone else to join the call…</div>
+    {/if}
+
+    <div class="controls">
+      {#if publishing}
+        <button class="cbtn" class:off={!micOn} onclick={toggleMic} title={micOn ? "Mute" : "Unmute"}>
+          {#if micOn}<Mic size={15} />{:else}<MicOff size={15} />{/if}
+        </button>
+        <button class="cbtn" class:off={!camOn} onclick={toggleCam} title={camOn ? "Camera off" : "Camera on"}>
+          {#if camOn}<Video size={15} />{:else}<VideoOff size={15} />{/if}
+        </button>
+      {:else}
+        <button class="cbtn cam-on" onclick={turnOnCamera} title="Turn on your camera"><Video size={15} /> Camera</button>
+      {/if}
+      <button class="cbtn end" onclick={leave} title="Leave call"><PhoneOff size={15} /></button>
+    </div>
+
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="resize" onpointerdown={startResize} title="Resize"></div>
+  {/if}
 </div>
 
 <style>
@@ -229,6 +251,21 @@
   }
   .grip:active {
     cursor: grabbing;
+  }
+  .mini {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 1px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+  }
+  .mini:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
   }
   .tile {
     position: relative;

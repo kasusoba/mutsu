@@ -20,6 +20,15 @@ import {
  */
 const DEBUG_HUD = false;
 
+/**
+ * The video rect barely moves, but reading it (getBoundingClientRect) forces a
+ * synchronous reflow — doing that every rAF frame on a heavy SPA (YouTube) is a
+ * real perf hit. The cue box only needs repositioning a few times a second, so
+ * we throttle the layout read to this interval (cue *text* still updates every
+ * frame — that's a cheap string compare, no layout).
+ */
+const LAYOUT_INTERVAL_MS = 200;
+
 export class SubtitleLayer {
   private host: HTMLDivElement;
   private box: HTMLDivElement;
@@ -27,6 +36,7 @@ export class SubtitleLayer {
   private cues: SubtitleCue[] = [];
   private style: SubtitleStyle = { ...DEFAULT_SUBTITLE_STYLE };
   private raf = 0;
+  private lastLayoutAt = 0;
   private lastText = "";
   private hostH = 0;
   private styleCalls = 0;
@@ -91,8 +101,8 @@ export class SubtitleLayer {
 
   mount(): void {
     this.reattach();
-    const loop = () => {
-      this.render();
+    const loop = (now: number) => {
+      this.render(now);
       this.raf = requestAnimationFrame(loop);
     };
     this.raf = requestAnimationFrame(loop);
@@ -160,8 +170,14 @@ export class SubtitleLayer {
     this.box.style.fontSize = `${Math.max(12, this.hostH * 0.05 * (s.sizePct / 100))}px`;
   }
 
-  private render(): void {
-    this.layout();
+  private render(now: number): void {
+    // Idle: no cues loaded and nothing showing → don't touch layout at all (the
+    // common case when subtitles are off). Keeps the loop a no-op, zero reflow.
+    if (this.cues.length === 0 && this.lastText === "") return;
+    if (now - this.lastLayoutAt >= LAYOUT_INTERVAL_MS) {
+      this.layout();
+      this.lastLayoutAt = now;
+    }
     const t = this.getTime();
     const ref = t == null ? null : t - this.style.offsetMs / 1000;
 

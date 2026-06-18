@@ -375,7 +375,28 @@
   // ── player UI state (M1) ──────────────────────────────────────────────────
   let sidebarOpen = $state(true);
   let activePanel = $state<"source" | "subs" | null>(null);
+  // The call is ambient (Discord/Meet-style): the moment anyone is in it,
+  // everyone else auto-surfaces + auto-joins to receive their webcam/mic without
+  // clicking Call. `callOn` is our own explicit "open it"; `callDismissed` lets
+  // us close a call others are still in without it snapping right back open.
   let callOn = $state(false);
+  let callDismissed = $state(false);
+  const iAmInCall = $derived(room?.members.some((m) => m.id === room?.self && m.inCall) ?? false);
+  const remoteInCall = $derived(room?.members.some((m) => m.id !== room?.self && m.inCall) ?? false);
+  const showCall = $derived((callOn || iAmInCall || remoteInCall) && !callDismissed);
+  // Reset the dismissal once the call is empty again, so the next person turning
+  // their camera on re-opens it for us.
+  $effect(() => {
+    if (!iAmInCall && !remoteInCall) callDismissed = false;
+  });
+  function openCall() {
+    callOn = true;
+    callDismissed = false;
+  }
+  function dismissCall() {
+    callOn = false;
+    callDismissed = true;
+  }
   let playerArea = $state<HTMLElement | null>(null);
   // Personal audio (direct player only; not synced).
   let muted = $state(false);
@@ -453,7 +474,12 @@
             </div>
           {/if}
         </div>
-        <button class="tb" class:on={callOn} onclick={() => (callOn = !callOn)} title="Video call (up to 2)">
+        <button
+          class="tb"
+          class:on={showCall}
+          onclick={() => (showCall ? dismissCall() : openCall())}
+          title="Video call (up to 2)"
+        >
           <Video size={16} /> Call
         </button>
         <button class="tb" onclick={copyInvite} title="Copy the invite link">
@@ -525,8 +551,8 @@
           <Embed src={room.sync.src} {bridge} />
         {/if}
 
-        {#if callOn && room.self}
-          <VideoCall {room} onClose={() => (callOn = false)} />
+        {#if showCall && room.self}
+          <VideoCall {room} onClose={dismissCall} />
         {/if}
 
         {#if (sourceKind === "direct" || sourceKind === "youtube") && room.sync?.src && (playerStatus === "loading" || playerStatus === "stalled")}

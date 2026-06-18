@@ -605,6 +605,16 @@ text. Capped to a **1:1 call** so it stays trivially inside free tiers.
 (perfect negotiation renegotiates when you do). So one person can broadcast while the other just
 watches — and STUN-only is unaffected (it's per-connection NAT traversal, independent of direction).
 
+**Ambient (auto-join), Discord/Meet-style.** You don't both have to click Call. The moment any
+member is `inCall`, every other client auto-surfaces the call UI and auto-joins to *receive* —
+turning a camera on just works, the others see it without clicking. A deliberate Leave is
+remembered (`callDismissed`) so it doesn't snap back open while others are still in; it resets once
+the call empties. On the web this lives in `App.svelte` (`showCall` = `callOn || iAmInCall ||
+remoteInCall`); in own-tab it's `OwnTabController.reconcileCall()` (which also auto-leaves if you
+were only watching and the call empties). Auto-join respects `CALL_CAP`, so it never spams
+`call_full`. The webcam dock can be **minimized** (web `VideoCall` grip chevron; own-tab call-float
+`cf-min`) and auto-collapses over fullscreen video, since the overlay is otherwise intrusive.
+
 **Presence + signaling (server↔client):**
 - `setCall {on}` → flips `Member.inCall` and rebroadcasts `members`, enforcing a **2-participant cap**
   (`CALL_CAP`); over-cap is refused with `error {code:"call_full"}`. Peers connect to whoever is
