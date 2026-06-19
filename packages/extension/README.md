@@ -30,8 +30,10 @@ pnpm --filter @sixseven/extension zip          # packaged zip for store upload
 Load unpacked: `chrome://extensions` → enable Developer mode → **Load unpacked** →
 `packages/extension/.output/chrome-mv3`.
 
-The extension talks to the deployed sync server hardcoded in `lib/config.ts`
-(`PARTYKIT_HOST`) — change it if you self-host your own backend.
+The extension no longer owns a WebSocket — the **web room page is the hub**. The popup opens
+the deployed room page at `WEB_APP_URL` in `lib/config.ts` (defaults to the local Vite dev
+server under `pnpm dev:ext`, the deployed page in production; override with `WXT_WEB_APP_URL`).
+Change `WEB_APP_URL` if you host the room page elsewhere.
 
 ---
 
@@ -60,7 +62,8 @@ Everything below is ready to paste into the Chrome Web Store / Firefox AMO listi
 > • Embeddable streaming sites and providers — it hooks the site's own player.
 > • Direct video links (HLS .m3u8 and .mp4/.webm files).
 > • YouTube.
-> • Any tab — start a party right where you are and share a short room code.
+> • Non-embeddable sites — the video plays in your own tab, kept in sync from the room page,
+>   with an in-page widget for members, chat, reactions, GIFs, and subtitles.
 >
 > **Also included**
 > • Personal subtitles — upload a file, search online, or use the source's own captions, then restyle and time-shift them just for you.
@@ -82,20 +85,33 @@ Everything below is ready to paste into the Chrome Web Store / Firefox AMO listi
 | Permission | Why it's needed |
 |---|---|
 | **Host permissions (`<all_urls>`)** | The content script must run inside the streaming page or cross-origin video iframe the user chooses to watch — which can be any site — to read the `<video>` element's playback time and apply play/pause/seek. It also lets the toolbar popup read the active tab's media URLs to "share to room". The extension stays inert until the user explicitly starts or joins a party. |
-| **`scripting`** | When the user clicks the toolbar button, the popup scans the active tab's frames for `<video>`/`<iframe>` sources so the user can pick what to share with the room. |
-| **`storage`** | Remembers the active "own-tab party" for a tab so the popup and the in-page content script share the same state. Local only. |
+| **`scripting`** | When the user clicks the toolbar button, the popup scans the active tab's frames for `<video>`/`<iframe>` sources so the user can pick what to share with the room. One read-only scan; no persistent injection. |
+| **`tabs`** | A watch party can play a non-embeddable site's video in its own tab while a separate **room page** tab controls it. The background service worker is the only context that can pass messages **between two tabs**, so it uses the tabs API to: relay play/pause/seek between the room tab and the site tab (`tabs.sendMessage`); detect when either tab navigates or closes so it can stop syncing (`tabs.onUpdated` / `tabs.onRemoved`); focus the room tab from the in-page "go to room" button (`tabs.update`); and find or open the site tab (`tabs.query` / `tabs.create`). The popup also reads the active tab's URL to offer "watch this page" and to find open room tabs. No browsing history is collected, stored, or transmitted. |
+| **`storage`** | `storage.session` holds the local room-tab ↔ site-tab pairing so a recycled background worker can recover it; `storage.local` keeps your GIF favorites and nickname. Local to your browser only. |
+| **`web_accessible_resources` (`icon/*.png`)** | The in-page widget shows the extension's icon in its floating bubble; a content-script `<img>` can only load extension resources that are marked web-accessible. |
 
 No remote code is loaded or executed — all logic ships in the package.
+
+Short version for the store's **`tabs`** justification field:
+
+> A watch party plays a non-embeddable site's video in its own tab while a separate room
+> tab controls it. The extension's background worker uses the tabs API to relay
+> play/pause/seek between those two tabs, to detect when either tab closes or navigates so
+> it can stop syncing, to focus the room tab on user request, and to read the active tab's
+> URL so the popup can offer to share that page to a room. No browsing history is collected,
+> stored, or transmitted.
 
 ## Data usage / privacy disclosures
 
 - **No analytics, no tracking, no ads, no data selling.**
-- The extension reads the playback time of the `<video>` on the page you choose to sync. This
-  **website content is not stored or transmitted** anywhere except as a numeric playback
-  position sent to the sync server so the party stays aligned.
-- The only personal-ish data is the **nickname you type**, sent to the sync server to label
-  you in the room. No accounts, no emails, no passwords.
-- Party state is stored **locally** in the browser (`storage`); it isn't sent anywhere.
+- The extension reads the playback time of the `<video>` on the page you choose to sync, and
+  passes it **locally to the room-page tab** (which holds the connection). This **website
+  content is not stored, and the extension itself contacts no server** — only a numeric
+  playback position travels, and only via the room page.
+- The room page (not the extension) sends that position and the **nickname you type** to the
+  sync server to keep the party aligned and label you. No accounts, no emails, no passwords.
+- Pairing state + GIF favorites + nickname are stored **locally** in the browser (`storage`);
+  they aren't sent anywhere by the extension.
 - The sync server is the one you (or the party host) run/point to — sixseven does not send
   your data to the developer.
 
@@ -112,4 +128,4 @@ Things the stores require that **aren't** in this repo and you'll need to provid
 - [ ] **Category** — suggest "Entertainment" (Chrome) / "Other" or "Social & Communication" (Firefox).
 - [ ] **Chrome data-usage form** — declare: does NOT sell data; data used only for the extension's single purpose; tick "website content" + "user-provided content (nickname)" as handled-but-not-sold.
 - [ ] **Account / developer fee** — Chrome Web Store has a one-time US$5 developer registration; Firefox AMO is free.
-- [ ] **`PARTYKIT_HOST`** in `lib/config.ts` points at a live server before you publish, or the published extension won't connect.
+- [ ] **`WEB_APP_URL`** in `lib/config.ts` points at the live room page in production builds (it does by default), or the popup will open the wrong place. The room page in turn must point at a live sync server (`VITE_PARTYKIT_HOST`, baked at web build — see `docs/DEPLOY.md`).
