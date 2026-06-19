@@ -65,6 +65,11 @@ export interface RegisterSatelliteMessage {
   src: string;
 }
 
+/** A satellite asks the background to focus its paired hub tab ("go to room"). */
+export interface FocusHubMessage {
+  kind: "focusHub";
+}
+
 // ── background → satellite (site tab) ─────────────────────────────────────────
 
 /** Background tells a site tab to start (`active:true`) or stand down
@@ -112,6 +117,7 @@ export type XtabMessage =
   | UnpairMessage
   | SatelliteHelloMessage
   | RegisterSatelliteMessage
+  | FocusHubMessage
   | AssignSatelliteMessage
   | SatelliteStateMessage
   | RelayMessage;

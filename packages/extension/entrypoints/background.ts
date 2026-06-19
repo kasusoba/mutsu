@@ -67,6 +67,12 @@ export default defineBackground(() => {
           const s = await load();
           const key = String(tabId);
           const p = s[key] ?? { room: msg.room, webTabId: tabId, url: "" };
+          // If this hub tab switched rooms, its old satellite no longer belongs —
+          // stand it down so it doesn't silently drive the new room.
+          if (p.siteTabId != null && p.room !== msg.room) {
+            standDown(p);
+            p.siteTabId = undefined;
+          }
           p.room = msg.room;
           p.webTabId = tabId;
           s[key] = p;
@@ -117,6 +123,18 @@ export default defineBackground(() => {
           return { room: p?.room ?? null };
         })();
 
+      // "Go to room" in the widget → focus this satellite's paired hub tab.
+      case "focusHub":
+        if (tabId == null) return;
+        return (async () => {
+          const p = bySite(await load(), tabId);
+          if (p?.webTabId != null) {
+            const tab = await browser.tabs.update(p.webTabId, { active: true }).catch(() => null);
+            if (tab?.windowId != null) void browser.windows.update(tab.windowId, { focused: true });
+          }
+          return { ok: true };
+        })();
+
       // The satellite confirms it's driving → let its hub know it's live.
       case "registerSatellite":
         if (tabId == null) return;
@@ -154,6 +172,34 @@ export default defineBackground(() => {
           else toTab(bySite(s, tabId)?.webTabId, msg as RelayUpMessage);
         })();
     }
+  });
+
+  // Extract the room name from a web room URL (`…/r/<name>[?…][#…]`), or null.
+  const parseRoom = (url: string): string | null => {
+    const m = url.match(/\/r\/([^/?#]+)/);
+    if (!m) return null;
+    try {
+      return decodeURIComponent(m[1]);
+    } catch {
+      return m[1];
+    }
+  };
+
+  // A hub tab navigated/refreshed to a DIFFERENT room (or left the room): its
+  // satellite is orphaned, so stand it down. A same-URL refresh fires no `url`
+  // change, so the satellite is kept (seamless rejoin).
+  browser.tabs.onUpdated.addListener(async (tabId, info) => {
+    if (!info.url) return;
+    const s = await load();
+    const p = s[String(tabId)];
+    if (!p || p.siteTabId == null) return;
+    const room = parseRoom(info.url);
+    if (room === p.room) return; // same room (e.g. query/hash stripped) → keep
+    standDown(p);
+    p.siteTabId = undefined;
+    if (room) p.room = room;
+    else delete s[String(tabId)];
+    await save(s);
   });
 
   // A tab vanished — tear down the half that's gone and tell the survivor.

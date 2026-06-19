@@ -11,7 +11,12 @@
  */
 
 import { browser } from "wxt/browser";
-import { WEB_APP_URL } from "../../lib/config";
+import {
+  MSG_SATELLITE_STATE,
+  MSG_SET_WIDGET_HIDDEN,
+  type SatelliteState,
+  WEB_APP_URL,
+} from "../../lib/config";
 import {
   type AreYouRoomReply,
   type DeliverSourceReply,
@@ -85,8 +90,14 @@ const playModeRow = $("playModeRow");
 const playNowBtn = $<HTMLButtonElement>("playNow");
 const playQueueBtn = $<HTMLButtonElement>("playQueue");
 
-/** The active tab's URL, captured on scan — the source for "Watch this page". */
+const satCard = $("satCard");
+const satMeta = $("satMeta");
+const satToggle = $<HTMLButtonElement>("satToggle");
+
+/** The active tab's URL + id, captured on scan. URL is the "Watch this page"
+ *  source; id is who we ask about / toggle the in-tab widget on (§11). */
 let activeTabUrl: string | null = null;
+let activeTabId: number | null = null;
 /** When sending to an open room: replace its source now, or add to the queue. */
 let playMode: "now" | "queue" = "now";
 
@@ -224,11 +235,13 @@ function renderRooms(): void {
 async function scanActiveTab(): Promise<MediaCandidate[]> {
   scanError = null;
   activeTabUrl = null;
+  activeTabId = null;
   const [active] = await browser.tabs.query({ active: true, currentWindow: true });
   if (!active?.id) {
     scanError = "No active tab to scan.";
     return [];
   }
+  activeTabId = active.id;
   if (!/^https?:/i.test(active.url ?? "")) {
     scanError = "This isn't a web page the extension can scan (chrome://, store, PDF…).";
     return [];
@@ -310,6 +323,31 @@ const setPlayMode = (mode: "now" | "queue") => {
 playNowBtn.addEventListener("click", () => setPlayMode("now"));
 playQueueBtn.addEventListener("click", () => setPlayMode("queue"));
 
+/** If the active tab is in a watch party (§11), show a card to show/hide its
+ *  in-tab widget — useful when it overlays the video or didn't surface. */
+async function refreshSatellite(): Promise<void> {
+  if (activeTabId === null) {
+    satCard.hidden = true;
+    return;
+  }
+  const st = (await browser.tabs
+    .sendMessage(activeTabId, { type: MSG_SATELLITE_STATE })
+    .catch(() => null)) as SatelliteState | null;
+  if (!st?.active) {
+    satCard.hidden = true;
+    return;
+  }
+  satCard.hidden = false;
+  satMeta.textContent = `${st.members} watching · widget ${st.hidden ? "hidden" : "shown"}`;
+  satToggle.textContent = st.hidden ? "Show widget" : "Hide widget";
+  satToggle.onclick = async () => {
+    await browser.tabs
+      .sendMessage(activeTabId as number, { type: MSG_SET_WIDGET_HIDDEN, hidden: !st.hidden })
+      .catch(() => {});
+    void refreshSatellite();
+  };
+}
+
 /** Render the "This page" source row (the current tab as a `site` source), shown
  *  only for a real, scannable web page. */
 function updateWatchPage(): void {
@@ -344,6 +382,7 @@ async function refresh(): Promise<void> {
     renderRooms();
     renderCandidates(candidates);
     updateWatchPage();
+    void refreshSatellite();
     // Only a scan error is worth surfacing now — "no open room" is no longer a
     // problem since creating a fresh room is the default action.
     if (scanError) notice(scanError, "err");

@@ -54,12 +54,18 @@ export class SatelliteController {
   private failTimer: ReturnType<typeof setTimeout> | null = null;
   private lastApply: Parameters<VideoHook["apply"]>[0] | null = null;
   private destroyed = false;
+  // Widget visibility + member count, surfaced to the popup so it can show/hide
+  // the in-tab widget (some viewers don't want it overlaying the video).
+  private widgetHidden = false;
+  private memberCount = 0;
 
   constructor(private readonly room: string) {
     this.widget = new SiteWidget({
+      room,
       onChat: (text) => this.sendUp({ kind: "widgetSay", sayKind: "chat", text }),
       onReact: (emoji) => this.sendUp({ kind: "widgetSay", sayKind: "reaction", text: emoji }),
       onGif: (url) => this.sendUp({ kind: "widgetSay", sayKind: "gif", text: url }),
+      onGoToRoom: () => this.post({ kind: "focusHub" }),
       gifSearch: async (q) => {
         const r = (await this.proxy("gif.search", { query: q })) as { results: GifHit[] };
         return r.results ?? [];
@@ -121,6 +127,16 @@ export class SatelliteController {
     this.armFailTimer();
   }
 
+  // ── popup control (show/hide the in-tab widget) ──────────────────────────────
+
+  setWidgetHidden(hidden: boolean): void {
+    this.widgetHidden = hidden;
+    this.widget.setGone(hidden); // fully remove (bubble included), not just minimize
+  }
+  popupState(): { active: boolean; hidden: boolean; members: number } {
+    return { active: true, hidden: this.widgetHidden, members: this.memberCount };
+  }
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -174,6 +190,7 @@ export class SatelliteController {
         break;
       // Room widget data from the hub (members + fun-layer events). Top-frame only.
       case "widgetMembers":
+        this.memberCount = msg.members.length;
         this.widget.setMembers(msg.members, msg.self);
         break;
       case "widgetEvent":

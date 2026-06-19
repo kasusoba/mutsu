@@ -20,6 +20,7 @@ import { PICKER_TAG, type PickSourceMessage, ROOM_ATTR } from "@sixseven/protoco
 import { type XtabMessage, unwrapXtab, wrapXtab } from "@sixseven/protocol/xtab";
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/sandbox";
+import { MSG_SATELLITE_STATE, MSG_SET_WIDGET_HIDDEN } from "../lib/config";
 import { Overlay } from "../lib/overlay";
 import {
   type AreYouRoomReply,
@@ -134,6 +135,22 @@ export default defineContentScript({
           case "satelliteState":
             window.postMessage(wrapXtab(msg), location.origin);
             return;
+        }
+        return;
+      });
+
+      // popup → this tab: query party state + show/hide the in-tab widget (§11).
+      browser.runtime.onMessage.addListener((raw: unknown) => {
+        const m = raw as { type?: string; hidden?: boolean } | null;
+        if (!m || typeof m !== "object") return;
+        if (m.type === MSG_SATELLITE_STATE) {
+          return Promise.resolve(
+            satellite ? satellite.popupState() : { active: false, hidden: false, members: 0 },
+          );
+        }
+        if (m.type === MSG_SET_WIDGET_HIDDEN) {
+          satellite?.setWidgetHidden(Boolean(m.hidden));
+          return Promise.resolve({ ok: true });
         }
         return;
       });

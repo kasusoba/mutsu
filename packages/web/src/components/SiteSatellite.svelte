@@ -51,7 +51,6 @@
       <ExternalLink size={14} /> Reopen tab
     </button>
   {/if}
-  <p class="hint">Your video, your tab — we only move the clock, never the video.</p>
 </div>
 
 <style>
@@ -104,10 +103,5 @@
     background: #ffffff1a;
     color: var(--muted, #cfcfd6);
     font-size: 0.85rem;
-  }
-  .hint {
-    margin-top: 0.5rem;
-    font-size: 0.75rem;
-    color: #6a6a74;
   }
 </style>

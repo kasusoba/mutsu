@@ -34,9 +34,13 @@ export interface SubHit {
 type FavGif = GifHit & { q: string };
 
 export interface SiteWidgetOpts {
+  /** The room this widget belongs to (shown so it's not "clueless"). */
+  room: string;
   onChat: (text: string) => void;
   onReact: (emoji: string) => void;
   onGif: (url: string) => void;
+  /** Focus the paired hub tab ("go to room"). */
+  onGoToRoom: () => void;
   gifSearch: (q: string) => Promise<GifHit[]>;
   subs: {
     loadFile: (f: File) => Promise<void>;
@@ -127,9 +131,16 @@ export class SiteWidget {
     this.style = style;
     this.renderStyle();
   }
+  /** Minimize ↔ expand (panel vs floating bubble) — the in-page header tap. */
   setHidden(hidden: boolean): void {
     this.q(".panel").hidden = hidden;
     this.q(".bubble").hidden = !hidden;
+  }
+  /** Fully remove the widget from the page (bubble included) — the popup's "Hide
+   *  widget". Showing again brings back the full panel. */
+  setGone(gone: boolean): void {
+    this.host.style.display = gone ? "none" : "";
+    if (!gone) this.setHidden(false);
   }
   destroy(): void {
     this.host.remove();
@@ -140,6 +151,17 @@ export class SiteWidget {
   private wireHeader(): void {
     const icon = this.q<HTMLImageElement>(".bubble img");
     icon.src = browser.runtime.getURL("/icon/48.png");
+    const room = this.q(".room");
+    room.textContent = this.opts.room;
+    room.title = `room: ${this.opts.room}`;
+    const goto = this.q<HTMLButtonElement>(".goto");
+    goto.title = `Go to room tab (${this.opts.room})`;
+    // Don't let the go-to button start a drag / trigger the tap-to-minimize.
+    goto.addEventListener("pointerdown", (e) => e.stopPropagation());
+    goto.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.opts.onGoToRoom();
+    });
     this.initDrag(this.q(".hd"), true);
     this.initDrag(this.q(".bubble"), false);
   }
@@ -517,8 +539,11 @@ export class SiteWidget {
         .hd { display: flex; align-items: center; gap: 6px; padding: 8px 10px; cursor: grab;
           background: #1f2230; border-bottom: 1px solid #2a2e3d; user-select: none; touch-action: none; }
         .hd:active { cursor: grabbing; }
-        .brand { font-weight: 600; letter-spacing: .3px; }
-        .hint { margin-left: auto; font-size: 10px; color: #6a6a74; }
+        .brand { font-weight: 600; letter-spacing: .3px; flex: none; }
+        .room { font-size: 11px; color: #9aa0b4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .goto { margin-left: auto; flex: none; border: 0; background: #ffffff14; color: #cfcfd6; border-radius: 6px;
+          padding: 2px 7px; cursor: pointer; font-size: 13px; line-height: 1.3; }
+        .goto:hover { background: #ffffff28; color: #fff; }
         .members { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 7px 10px; border-bottom: 1px solid #2a2e3d; }
         .m { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
         .dot { width: 7px; height: 7px; border-radius: 50%; background: #9aa0b4; }
@@ -582,7 +607,7 @@ export class SiteWidget {
         .bubble img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
       </style>
       <div class="panel">
-        <div class="hd"><span class="brand">sixseven</span><span class="hint">drag · tap to hide</span></div>
+        <div class="hd"><span class="brand">sixseven</span><span class="room"></span><button class="goto" title="Go to room tab">↗</button></div>
         <div class="members"></div>
         <div class="tabs">
           <button data-tab="chat">Chat</button><button data-tab="gif">GIF</button><button data-tab="subs">Subs</button>

@@ -90,6 +90,47 @@
       .create-room.secondary[hidden] {
         display: none;
       }
+      .sat-card {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 12px 12px 0;
+        padding: 9px 10px;
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+      }
+      .sat-card[hidden] {
+        display: none;
+      }
+      .sat-info {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        margin-right: auto;
+        min-width: 0;
+      }
+      .sat-title {
+        font-weight: 600;
+      }
+      .sat-meta {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .sat-toggle {
+        flex: none;
+        font: inherit;
+        font-size: 12px;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
+      .sat-toggle:hover {
+        border-color: var(--accent);
+      }
       /* ── destination (where the chosen source goes) ── */
       .dest {
         padding: 10px 12px;
@@ -305,6 +346,11 @@
       <span class="brand">sixseven</span>
     </header>
     <div class="panel" id="roomPanel">
+      <!-- This tab is in a watch party (§11) — show/hide its in-tab widget. -->
+      <div class="sat-card" id="satCard" hidden>
+        <div class="sat-info"><span class="sat-title">▶ Watching here</span><span class="sat-meta" id="satMeta"></span></div>
+        <button class="sat-toggle" id="satToggle">Hide widget</button>
+      </div>
       <!-- Destination: where the chosen source goes. Defaults to the open room
            when one exists, else a new room (the row hides when no room is open). -->
       <div class="dest" id="destRow" hidden>

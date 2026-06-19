@@ -19,6 +19,19 @@ export const WEB_APP_URL =
   ENV.WXT_WEB_APP_URL ||
   (import.meta.env.DEV ? "http://localhost:5173" : "https://sixseven-3kc.pages.dev");
 
+// popup ↔ site-tab satellite (§11): the popup queries whether this tab is in a
+// party and shows/hides the in-tab widget (some viewers don't want it overlaying
+// the video). The satellite lives in the site tab's content script.
+export const MSG_SATELLITE_STATE = "sixseven:satellite-state" as const;
+export const MSG_SET_WIDGET_HIDDEN = "sixseven:set-widget-hidden" as const;
+
+/** Live snapshot the satellite reports to the popup. */
+export interface SatelliteState {
+  active: boolean;
+  hidden: boolean;
+  members: number;
+}
+
 /** Two URLs identify the same source if origin + pathname match (ignore
  *  query/hash — streaming sites tack on tracking params, hash routing, etc.).
  *  Used to reuse an already-open tab when pairing a site satellite. */
