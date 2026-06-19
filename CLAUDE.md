@@ -84,6 +84,19 @@ already access the source they sync**.
   tolerance. Don't tighten the dead-zone without testing on a real embed.
 - Prefer the cheapest hosting path that fits (free tiers first).
 - Update the relevant doc in the same change when behavior changes.
+- **One design system, web + extension.** Palette is defined in `web/src/app.css` and mirrored in
+  the extension popup (`entrypoints/popup/index.html`); icons are **Lucide** everywhere. The
+  extension's in-page UIs (popup, the §11 in-tab `siteWidget`) live in a **Shadow DOM that does NOT
+  inherit app CSS** — so replicate the web's component styles (e.g. the `input[type=range]` volume-bar
+  slider, pill buttons, ellipsis-truncated two-line list rows) instead of shipping browser defaults.
+  Mirror `SubtitlePanel`/`GifPicker` for the widget's subtitle/gif panels.
+- **Extension ships slow, web/server ship instant.** The extension goes through store review (days);
+  web (Pages) + server (PartyKit) deploy immediately. So production must keep working with the
+  *currently-published* extension. Treat `@sixseven/protocol/{bridge,xtab,picker}` (the extension↔web
+  messages) as a **public API: additive only** — add message kinds/optional fields, never remove or
+  rename; both sides ignore unknown messages. **Deploy web/server first, submit the extension last.**
+  If a breaking protocol change is ever unavoidable, version it (the content script already tags
+  `data-sixseven-ext`) and have the web nudge "update the extension".
 
 ## Status
 
