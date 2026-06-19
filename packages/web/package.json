@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:prod": "VITE_PARTYKIT_HOST=${VITE_PARTYKIT_HOST:-sixseven.kasusoba.partykit.dev} vite build",
-    "deploy:cf": "pnpm build:prod && npx wrangler pages deploy dist --project-name sixseven",
+    "deploy:cf": "pnpm build:prod && npx wrangler pages deploy dist --project-name sixseven --branch main",
     "preview": "vite preview",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },

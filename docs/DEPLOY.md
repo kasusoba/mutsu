@@ -38,13 +38,18 @@ First deploy needs a one-time Cloudflare login: `npx wrangler login` (opens a
 browser). The PartyKit host is **not a secret** — it ships in the client bundle
 and is fine to commit; only `packages/server/.env` keys stay out of the repo.
 
+`deploy:web` pins `--branch main`, so it always updates **production**
+(`sixseven.pages.dev`) even when you run it from a feature branch. Without that,
+`wrangler pages deploy` on a non-production branch creates a throwaway *preview*
+deployment (`<branch>.sixseven-3kc.pages.dev`) and leaves production untouched.
+
 Manual equivalent:
 
 ```bash
 VITE_PARTYKIT_HOST=sixseven.<your-username>.partykit.dev \
   pnpm --filter @sixseven/web build          # → packages/web/dist
 
-npx wrangler pages deploy packages/web/dist --project-name sixseven
+npx wrangler pages deploy packages/web/dist --project-name sixseven --branch main
 ```
 
 Or connect the GitHub repo in the Pages dashboard with:
