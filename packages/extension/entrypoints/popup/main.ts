@@ -22,7 +22,6 @@ import {
   rankCandidates,
 } from "../../lib/picker";
 import { icon } from "./icons";
-import { initOwnTab } from "./ownTab";
 
 const ROOM_ADJ = ["cosy", "late", "rainy", "neon", "velvet", "amber", "quiet", "lucky"];
 const ROOM_NOUN = ["sofa", "lounge", "den", "balcony", "cinema", "loft", "patio", "booth"];
@@ -47,8 +46,10 @@ function makeRoomName(): string {
 }
 
 /** Open a freshly-minted room on the deployed web page, optionally pre-loaded
- *  with a source (`?src=…&kind=…`, applied once the creator joins). */
-function createRoom(url?: string, kind?: "embed" | "direct"): void {
+ *  with a source (`?src=…&kind=…`, applied once the creator joins). A `site`
+ *  source plays in its own tab (the creator's current tab) — the room page is
+ *  still the hub (§11). */
+function createRoom(url?: string, kind?: "embed" | "direct" | "site"): void {
   const name = makeRoomName();
   let path = `/r/${encodeURIComponent(name)}`;
   if (url) {
@@ -69,7 +70,6 @@ interface RoomTab {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const listEl = $("list");
-const targetRow = $("targetRow");
 const roomSelect = $<HTMLSelectElement>("room");
 const countEl = $("count");
 const noticeEl = $("notice");
@@ -77,31 +77,42 @@ const manualInput = $<HTMLInputElement>("manualUrl");
 const manualSend = $<HTMLButtonElement>("manualSend");
 const rescanBtn = $<HTMLButtonElement>("rescan");
 const newRoomBtn = $<HTMLButtonElement>("newRoom");
-const sendModeRow = $("sendModeRow");
-const sendModeBox = $<HTMLInputElement>("sendMode");
-const queueModeRow = $("queueModeRow");
+const watchPageBtn = $<HTMLButtonElement>("watchPage");
+const destRow = $("destRow");
+const destRoomRadio = $<HTMLInputElement>("destRoomRadio");
+const destNewRadio = $<HTMLInputElement>("destNewRadio");
+const playModeRow = $("playModeRow");
+const playNowBtn = $<HTMLButtonElement>("playNow");
+const playQueueBtn = $<HTMLButtonElement>("playQueue");
 
-/** "Send to an open room" is only possible when a room tab exists AND the user
- *  ticked the box; otherwise the popup creates a brand-new room. */
-function sendMode(): boolean {
-  return rooms.length > 0 && sendModeBox.checked;
+/** The active tab's URL, captured on scan — the source for "Watch this page". */
+let activeTabUrl: string | null = null;
+/** When sending to an open room: replace its source now, or add to the queue. */
+let playMode: "now" | "queue" = "now";
+
+type Kind = "embed" | "direct" | "site";
+
+/** The chosen destination: an already-open room, or a brand-new room. Defaults to
+ *  the open room when one exists (the radio is checked by default); falls back to
+ *  "new" when none is open (the picker row is hidden then). */
+function sendToRoom(): boolean {
+  return rooms.length > 0 && destRoomRadio.checked;
 }
 
-/** A picked source (a scanned video or the paste box): create a room with it, or
- *  send it to an open room — depending on the mode. */
-function act(url: string, kind?: "embed" | "direct"): void {
-  if (sendMode()) deliver(url, kind);
+/** A picked source (this page, a scanned video, or the paste box) → the chosen
+ *  destination: add to the open room (now/queue) or create a new room with it. */
+function act(url: string, kind?: Kind): void {
+  if (sendToRoom()) deliver(url, kind, playMode === "queue");
   else createRoom(url, kind);
 }
 
-/** Reflect the current mode: show send-related controls only when sending. */
-function updateModeUI(): void {
-  sendModeRow.hidden = rooms.length === 0;
-  if (rooms.length === 0) sendModeBox.checked = false;
-  const sending = sendMode();
-  targetRow.hidden = !sending;
-  queueModeRow.hidden = !sending;
-  manualSend.textContent = sending ? "send" : "new room";
+/** Reflect the destination controls: the room picker + play/queue only when a
+ *  room tab exists; the paste button's verb follows the destination. */
+function updateDestUI(): void {
+  destRow.hidden = rooms.length === 0;
+  if (rooms.length === 0) destNewRadio.checked = true; // nothing to send to → new room
+  playModeRow.hidden = !sendToRoom();
+  manualSend.textContent = sendToRoom() ? (playMode === "queue" ? "queue" : "send") : "new room";
 }
 
 let rooms: RoomTab[] = [];
@@ -120,13 +131,12 @@ function selectedRoomTab(): number | null {
   return Number.isFinite(id) ? id : rooms[0].tabId;
 }
 
-async function deliver(url: string, srcKind?: "embed" | "direct"): Promise<void> {
+async function deliver(url: string, srcKind?: Kind, queue = false): Promise<void> {
   const tabId = selectedRoomTab();
   if (tabId === null) {
     notice("Open your sixseven room page in another tab, then reopen this.", "err");
     return;
   }
-  const queue = $<HTMLInputElement>("queueMode").checked;
   try {
     const reply = (await browser.tabs.sendMessage(tabId, {
       type: PICKER_DELIVER,
@@ -208,11 +218,12 @@ function renderRooms(): void {
     opt.textContent = r.room;
     roomSelect.append(opt);
   }
-  updateModeUI(); // show/hide the send-mode controls based on whether rooms exist
+  updateDestUI(); // show/hide the destination controls based on whether rooms exist
 }
 
 async function scanActiveTab(): Promise<MediaCandidate[]> {
   scanError = null;
+  activeTabUrl = null;
   const [active] = await browser.tabs.query({ active: true, currentWindow: true });
   if (!active?.id) {
     scanError = "No active tab to scan.";
@@ -222,6 +233,8 @@ async function scanActiveTab(): Promise<MediaCandidate[]> {
     scanError = "This isn't a web page the extension can scan (chrome://, store, PDF…).";
     return [];
   }
+  // A real web page → eligible to be watched together as a `site` source.
+  activeTabUrl = active.url ?? null;
   try {
     const results = await withTimeout(
       browser.scripting.executeScript({
@@ -278,8 +291,45 @@ manualSend.addEventListener("click", () => {
 manualInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && manualInput.value.trim()) act(manualInput.value.trim());
 });
+// ＋ New empty room always makes a fresh, empty room (ignores the destination).
 newRoomBtn.addEventListener("click", () => createRoom());
-sendModeBox.addEventListener("change", updateModeUI);
+// "This page" is a `site` source (§11): it plays in the user's own tab, synced
+// from the room — routed through the same destination as any other source.
+watchPageBtn.addEventListener("click", () => {
+  if (activeTabUrl) act(activeTabUrl, "site");
+});
+// Destination radios + play/queue segmented control.
+destRoomRadio.addEventListener("change", updateDestUI);
+destNewRadio.addEventListener("change", updateDestUI);
+const setPlayMode = (mode: "now" | "queue") => {
+  playMode = mode;
+  playNowBtn.classList.toggle("active", mode === "now");
+  playQueueBtn.classList.toggle("active", mode === "queue");
+  updateDestUI();
+};
+playNowBtn.addEventListener("click", () => setPlayMode("now"));
+playQueueBtn.addEventListener("click", () => setPlayMode("queue"));
+
+/** Render the "This page" source row (the current tab as a `site` source), shown
+ *  only for a real, scannable web page. */
+function updateWatchPage(): void {
+  watchPageBtn.hidden = activeTabUrl === null;
+  if (activeTabUrl === null) return;
+  watchPageBtn.replaceChildren();
+  const ico = document.createElement("span");
+  ico.className = "ico";
+  ico.append(icon("page"));
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const url = document.createElement("div");
+  url.className = "url";
+  url.textContent = "This page";
+  const sub = document.createElement("div");
+  sub.className = "sub";
+  sub.textContent = `${host(activeTabUrl)} · plays in your own tab`;
+  meta.append(url, sub);
+  watchPageBtn.append(ico, meta);
+}
 
 let scanning = false;
 
@@ -293,6 +343,7 @@ async function refresh(): Promise<void> {
     rooms = found;
     renderRooms();
     renderCandidates(candidates);
+    updateWatchPage();
     // Only a scan error is worth surfacing now — "no open room" is no longer a
     // problem since creating a fresh room is the default action.
     if (scanError) notice(scanError, "err");
@@ -308,37 +359,7 @@ async function refresh(): Promise<void> {
 
 rescanBtn.addEventListener("click", refresh);
 
-const TAB_KEY = "sixseven:popupTab";
-
-/** Two modes, one at a time: own-tab "watch here" vs the send-to-room picker. */
-async function initTabs(forced?: "here" | "room"): Promise<void> {
-  const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>(".tab"));
-  const panels: Record<string, HTMLElement> = {
-    here: $("herePanel"),
-    room: $("roomPanel"),
-  };
-  const select = (name: string) => {
-    for (const t of tabs) t.classList.toggle("active", t.dataset.tab === name);
-    for (const [key, el] of Object.entries(panels)) el.hidden = key !== name;
-    browser.storage.local.set({ [TAB_KEY]: name });
-  };
-  for (const t of tabs) t.addEventListener("click", () => select(t.dataset.tab ?? "here"));
-  const saved = (await browser.storage.local.get(TAB_KEY))[TAB_KEY];
-  // Default to the Room tab (creating "our room" is the main flow); only fall
-  // back to "Watch on this page" when explicitly forced or last used.
-  select(forced ?? (saved === "here" ? "here" : "room"));
-}
-
 async function main(): Promise<void> {
-  // If this tab is already in an own-tab party, open on "Watch here" so the user
-  // sees it; otherwise fall back to the last-used tab.
-  const inParty = await initOwnTab().catch((e) => {
-    console.warn("[sixseven] own-tab init failed", e);
-    return false;
-  });
-  initTabs(inParty ? "here" : undefined).catch((e) =>
-    console.warn("[sixseven] tabs init failed", e),
-  );
   await refresh();
   // Players (and room pages) often mount their <video>/attribute asynchronously,
   // after the popup's first scan. If we came up empty, retry once shortly — this

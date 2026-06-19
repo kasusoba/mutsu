@@ -6,6 +6,7 @@
     Mic,
     MicOff,
     PhoneOff,
+    PictureInPicture2,
     Video,
     VideoOff,
   } from "lucide-svelte";
@@ -36,6 +37,82 @@
   // Minimize to just the grip bar — a way to tuck the webcam out of the way
   // (it overlays the video, including in fullscreen).
   let collapsed = $state(false);
+  // Document Picture-in-Picture: pop the dock into an always-on-top OS window so
+  // the call floats over OTHER tabs (e.g. a `site` source playing in its own tab,
+  // §11) — mini-Meet style. WebRTC media can't cross tabs, so we move the dock's
+  // DOM into the PiP window (Svelte keeps updating the adopted nodes).
+  let floating = $state(false);
+  let pip: Window | null = null;
+  let homeParent: HTMLElement | null = null;
+  const pipSupported =
+    typeof window !== "undefined" && "documentPictureInPicture" in window;
+
+  interface DocPiP {
+    requestWindow(opts?: { width?: number; height?: number }): Promise<Window>;
+  }
+
+  async function popOut() {
+    const dpip = (window as unknown as { documentPictureInPicture?: DocPiP })
+      .documentPictureInPicture;
+    if (!dpip || !dockEl) {
+      error = "Floating call needs a Chromium browser (Chrome/Edge).";
+      return;
+    }
+    let win: Window;
+    try {
+      win = await dpip.requestWindow({ width: 240, height: 360 });
+    } catch {
+      return; // user dismissed / not allowed
+    }
+    pip = win;
+    // The PiP document starts blank — copy our stylesheets so the dock looks right.
+    for (const ss of Array.from(document.styleSheets)) {
+      try {
+        const css = Array.from(ss.cssRules)
+          .map((r) => r.cssText)
+          .join("");
+        const style = document.createElement("style");
+        style.textContent = css;
+        win.document.head.appendChild(style);
+      } catch {
+        if (ss.href) {
+          const link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = ss.href;
+          win.document.head.appendChild(link);
+        }
+      }
+    }
+    win.document.body.style.cssText = "margin:0;background:#000;";
+    homeParent = dockEl.parentElement;
+    floating = true;
+    win.document.body.append(dockEl);
+    win.addEventListener("pagehide", restoreFromPip, { once: true });
+  }
+
+  function restoreFromPip() {
+    if (dockEl && homeParent) homeParent.append(dockEl);
+    floating = false;
+    pip = null;
+  }
+
+  // Svelte 5 delegates `onclick` to the main document, so clicks inside the PiP
+  // window (a separate document) never reach those handlers. Bind controls with a
+  // DIRECT listener via this action so they work both docked and floating.
+  function tap(node: HTMLElement, handler: () => void) {
+    let h = handler;
+    const fn = (e: Event) => {
+      e.preventDefault();
+      h();
+    };
+    node.addEventListener("click", fn);
+    return {
+      update: (nh: () => void) => {
+        h = nh;
+      },
+      destroy: () => node.removeEventListener("click", fn),
+    };
+  }
 
   onMount(() => {
     const self = room.self ?? "";
@@ -114,6 +191,7 @@
     room.setCam(camOn);
   }
   function leave() {
+    pip?.close(); // also restores the dock to the page before we unmount
     onClose();
   }
 
@@ -158,25 +236,37 @@
     room.onCallError = () => {};
     room.setCall(false);
     mgr?.stop();
+    pip?.close();
   });
 </script>
 
 <div
   class="call-dock"
+  class:floating
   bind:this={dockEl}
-  style:width={`${width}px`}
-  style:left={pos ? `${pos.x}px` : "auto"}
-  style:top={pos ? `${pos.y}px` : "auto"}
-  style:right={pos ? "auto" : "12px"}
-  style:bottom={pos ? "auto" : "12px"}
+  style:width={floating ? null : `${width}px`}
+  style:left={floating ? null : pos ? `${pos.x}px` : "auto"}
+  style:top={floating ? null : pos ? `${pos.y}px` : "auto"}
+  style:right={floating ? null : pos ? "auto" : "12px"}
+  style:bottom={floating ? null : pos ? "auto" : "12px"}
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="grip" onpointerdown={startDrag}>
     <GripVertical size={13} /> <span>Call</span>
+    {#if pipSupported && !floating}
+      <button
+        class="mini popout"
+        onpointerdown={(e) => e.stopPropagation()}
+        onclick={popOut}
+        title="Float over other tabs"
+      >
+        <PictureInPicture2 size={14} />
+      </button>
+    {/if}
     <button
       class="mini"
       onpointerdown={(e) => e.stopPropagation()}
-      onclick={() => (collapsed = !collapsed)}
+      use:tap={() => (collapsed = !collapsed)}
       title={collapsed ? "Expand" : "Minimize"}
     >
       {#if collapsed}<ChevronUp size={14} />{:else}<ChevronDown size={14} />{/if}
@@ -209,16 +299,16 @@
 
     <div class="controls">
       {#if publishing}
-        <button class="cbtn" class:off={!micOn} onclick={toggleMic} title={micOn ? "Mute" : "Unmute"}>
+        <button class="cbtn" class:off={!micOn} use:tap={toggleMic} title={micOn ? "Mute" : "Unmute"}>
           {#if micOn}<Mic size={15} />{:else}<MicOff size={15} />{/if}
         </button>
-        <button class="cbtn" class:off={!camOn} onclick={toggleCam} title={camOn ? "Camera off" : "Camera on"}>
+        <button class="cbtn" class:off={!camOn} use:tap={toggleCam} title={camOn ? "Camera off" : "Camera on"}>
           {#if camOn}<Video size={15} />{:else}<VideoOff size={15} />{/if}
         </button>
       {:else}
-        <button class="cbtn cam-on" onclick={turnOnCamera} title="Turn on your camera"><Video size={15} /> Camera</button>
+        <button class="cbtn cam-on" use:tap={turnOnCamera} title="Turn on your camera"><Video size={15} /> Camera</button>
       {/if}
-      <button class="cbtn end" onclick={leave} title="Leave call"><PhoneOff size={15} /></button>
+      <button class="cbtn end" use:tap={leave} title="Leave call"><PhoneOff size={15} /></button>
     </div>
 
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -237,6 +327,15 @@
     border-radius: 12px;
     background: rgba(0, 0, 0, 0.55);
     backdrop-filter: blur(6px);
+  }
+  /* Inside the Document-PiP window: fill it, no rounded corners/positioning. */
+  .call-dock.floating {
+    position: static;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    overflow-y: auto;
+    background: #000;
   }
   .grip {
     display: flex;

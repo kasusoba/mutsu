@@ -1,116 +1,27 @@
 /**
- * Extension config + own-tab party storage (§11).
+ * Extension config (§11).
  *
- * Own-tab mode is fully extension-driven — no web room page. The only backend is
- * the PartyKit relay (content-neutral clock). The party code IS the room name
- * AND the capability: a single token users share out-of-band (Discord, etc.),
- * entered in the popup. No invite links — nothing external touches our state.
+ * The extension no longer owns any WebSocket — the web room page is the hub for
+ * every party. The extension's jobs are (a) the popup launcher, which opens a
+ * freshly-minted room on the deployed web page, and (b) the content-script
+ * satellite, which the background relay pairs to a room to drive a frame-forbidding
+ * site's `<video>`. So all this module holds is the web app URL and a small
+ * same-source helper shared by the popup and the background.
  */
 
-import { browser } from "wxt/browser";
-
-/**
- * The deployed PartyKit relay the extension talks to (mirrors the web's baked
- * VITE_PARTYKIT_HOST). Change this if you self-host a different backend.
- */
-export const PARTYKIT_HOST = "sixseven.kasusoba.partykit.dev";
-
-/** The deployed web room page — where the popup opens a freshly-created room
- *  (`/r/<name>#k=<secret>`). Change this if you host the room page elsewhere. */
-export const WEB_APP_URL = "https://sixseven-3kc.pages.dev";
-
-// popup ↔ source-tab content script (own-tab mode)
-export const MSG_START_OWNTAB = "sixseven:start-owntab" as const;
-export const MSG_STOP_OWNTAB = "sixseven:stop-owntab" as const;
-export const MSG_SET_WIDGET_HIDDEN = "sixseven:set-widget-hidden" as const;
-/** Popup asks the source tab's controller for a live state snapshot (so the
- *  popup never opens its own connection — no phantom member). */
-export const MSG_GET_STATE = "sixseven:get-state" as const;
-
-export type PartyRole = "creator" | "joiner";
-
-/** Personal fun-layer display settings (§14) — how YOU see reactions/gifs/chat
- *  bubbles over the video. Not synced; gates display only. */
-export interface FunSettings {
-  reactions: boolean;
-  gifs: boolean;
-  bubbles: boolean;
-  speed: "fast" | "normal" | "slow";
-}
-export const FUN_DEFAULTS: FunSettings = {
-  reactions: true,
-  gifs: true,
-  bubbles: true,
-  speed: "normal",
-};
-export const FUN_SPEED_MULT: Record<FunSettings["speed"], number> = {
-  fast: 0.5,
-  normal: 1,
-  slow: 1.9,
-};
-const FUN_KEY = "sixseven:funSettings";
-
-export async function loadFunSettings(): Promise<FunSettings> {
-  const got = await browser.storage.local.get(FUN_KEY);
-  return { ...FUN_DEFAULTS, ...((got[FUN_KEY] as Partial<FunSettings>) ?? {}) };
-}
-export async function saveFunSettings(s: FunSettings): Promise<void> {
-  await browser.storage.local.set({ [FUN_KEY]: s });
-}
-
-/** An active own-tab party this browser is part of (one per source tab). */
-export interface OwnTabParty {
-  /** Room name AND shared capability — the short code users exchange. */
-  code: string;
-  nickname: string;
-  /** Page URL where the video lives ("open this to watch"). */
-  sourceUrl: string;
-  role: PartyRole;
-  /** Creator's chosen control mode (honoured only on the room-creating join). */
-  createMode?: "open" | "host";
-}
-
-export const PARTIES_KEY = "sixseven:ownTabParties";
-const NICK_KEY = "sixseven:nick";
-
-export async function getParties(): Promise<OwnTabParty[]> {
-  const got = await browser.storage.local.get(PARTIES_KEY);
-  const list = got[PARTIES_KEY];
-  return Array.isArray(list) ? (list as OwnTabParty[]) : [];
-}
-
-async function setParties(list: OwnTabParty[]): Promise<void> {
-  await browser.storage.local.set({ [PARTIES_KEY]: list });
-}
-
-/** Add/replace a party, keyed by normalized source URL. */
-export async function saveParty(party: OwnTabParty): Promise<void> {
-  const list = (await getParties()).filter((p) => !sameSource(p.sourceUrl, party.sourceUrl));
-  list.push(party);
-  await setParties(list);
-}
-
-export async function removeParty(sourceUrl: string): Promise<void> {
-  const list = (await getParties()).filter((p) => !sameSource(p.sourceUrl, sourceUrl));
-  await setParties(list);
-}
-
-/** The active party for a given page URL, if this tab is a party source. */
-export async function partyForUrl(url: string): Promise<OwnTabParty | null> {
-  return (await getParties()).find((p) => sameSource(p.sourceUrl, url)) ?? null;
-}
-
-export async function loadNickname(): Promise<string> {
-  const got = await browser.storage.local.get(NICK_KEY);
-  return typeof got[NICK_KEY] === "string" ? (got[NICK_KEY] as string) : "";
-}
-
-export async function saveNickname(nick: string): Promise<void> {
-  await browser.storage.local.set({ [NICK_KEY]: nick });
-}
+/** The web room page the popup opens (`/r/<name>#k=<secret>`). Defaults to the
+ *  deployed page in production builds and the local Vite dev server under
+ *  `wxt dev` (`import.meta.env.DEV`), so local testing "just works" without an
+ *  edit. Override with `WXT_WEB_APP_URL` (e.g. a tunnel host or a non-default
+ *  port: `WXT_WEB_APP_URL=http://localhost:4000 pnpm --filter @sixseven/extension build`). */
+const ENV = import.meta.env as Record<string, string | undefined>;
+export const WEB_APP_URL =
+  ENV.WXT_WEB_APP_URL ||
+  (import.meta.env.DEV ? "http://localhost:5173" : "https://sixseven-3kc.pages.dev");
 
 /** Two URLs identify the same source if origin + pathname match (ignore
- *  query/hash — streaming sites tack on tracking params, hash routing, etc.). */
+ *  query/hash — streaming sites tack on tracking params, hash routing, etc.).
+ *  Used to reuse an already-open tab when pairing a site satellite. */
 export function sameSource(a: string, b: string): boolean {
   try {
     const ua = new URL(a);
@@ -121,15 +32,4 @@ export function sameSource(a: string, b: string): boolean {
   } catch {
     return a === b;
   }
-}
-
-/** A short, readable, shareable party code (room name + capability). ~41 bits. */
-export function makeCode(len = 8): string {
-  // No 0/O/1/I/L to avoid read-aloud ambiguity.
-  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  const buf = new Uint8Array(len);
-  crypto.getRandomValues(buf);
-  let out = "";
-  for (let i = 0; i < len; i++) out += alphabet[(buf[i] ?? 0) % alphabet.length];
-  return out;
 }

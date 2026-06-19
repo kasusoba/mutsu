@@ -36,8 +36,9 @@ export interface PickSourceMessage {
   tag: typeof PICKER_TAG;
   kind: "pick-source";
   url: string;
-  /** Suggested render kind ("embed"|"direct"); the page may still re-detect. */
-  srcKind?: "embed" | "direct";
+  /** Suggested render kind ("embed"|"direct"|"site"); the page may still re-detect.
+   *  "site" = a frame-forbidding page that plays in its own tab (§11). */
+  srcKind?: "embed" | "direct" | "site";
   /** Add to the playlist queue (§14) instead of playing it now. */
   queue?: boolean;
 }

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./bridge": "./src/bridge.ts",
+    "./xtab": "./src/xtab.ts",
     "./picker": "./src/picker.ts",
     "./subtitles": "./src/subtitles.ts"
   },

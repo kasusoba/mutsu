@@ -139,13 +139,36 @@ secret, `history.pushState`es to `/r/<name>#k=<secret>` (no reload), and joins. 
 room-creating join → creator is host) — and still flips live via the top-bar toggle (`setMode`) and
 `passControl` (host handoff). The Invite button copies the capability URL.
 
-**Own-tab watch party (§11) — built:** an extension-native party with **no web room page** — start
-on any tab (popup → "Watch together"), share a short **room code** (no invite links), join via the
-popup. The connection lives in the **source tab's content script** (it's the member); the room page
-is optional. A draggable, edge-magnetic, hideable Shadow-DOM widget carries members/chat/subs/leave;
-reuses `VideoHook`/the frame bridge/gate. Subtitles work in own-tab too (upload + online search +
-embedded-track picker for top-frame video + full personal style). `srcKind:"site"`; `lib/ownTab.ts`,
-`lib/partyWidget.ts`, `lib/roomSocket.ts`, `lib/config.ts`.
+**Site sources — play in your own tab, hub stays on the web (§11) — built:** a frame-forbidding
+source (Netflix-style `X-Frame-Options`) can't render in the room page's iframe, so its video plays
+in **your own browser tab** — but the **web room page is still the single hub** (it owns the WS and
+renders members/chat/call/queue/sync). **No room-less parties:** `site` is just another `srcKind` on
+an ordinary web room, shared via the normal invite URL. Because one viewer now spans two tabs (hub +
+site), only the **hub tab is the member**; the site tab is a **dumb satellite** the hub drives
+through a **background service worker** relay (`entrypoints/background.ts` — the only MV3 context that
+can `tabs.sendMessage` between two tabs; pairing is local to one browser). It reuses the **exact
+bridge protocol** over a cross-tab carrier (`@sixseven/protocol/xtab`); on the web, `RoomBridge`
+(`web/src/lib/bridge.ts`) is one facade over `PageBridge` (iframe/`embed`) + `CrossTabBridge`
+(xtab/`site`), picked by `srcKind`. Popup → **"Watch this page together"** opens `/r/<name>?src=…&kind=site`;
+the **SiteSatellite** panel's "Open <host>" button (a user gesture) pairs the tab (reusing the
+creator's existing tab, or opening one for a joiner). Pairings are keyed by the **hub tab** and
+relays route by the **sending tab**, so multiple hubs in one browser (e.g. two windows of one
+profile) each drive their own satellite. While watching in the site tab you get the full **in-tab
+widget** (`lib/siteWidget.ts` — draggable, **edge-magnetic**, hideable Shadow-DOM): members, chat
+(read/send), a **GIF picker**, reaction buttons, and a **subtitle panel** (upload / online search /
+±offset / "From this site" track picker), plus floating reactions/bubbles (`lib/reactionLayer.ts`).
+It owns **no socket** — the hub pushes `widgetMembers`/`widgetEvent` down; chat/reactions/gifs go up
+as `widgetSay`; and member-gated ops (GIPHY + subtitle search/download) run on the hub via a
+`widgetProxy`/`widgetProxyResult` **RPC** over the relay. The input swallows key events so chatting
+doesn't trigger the site's player hotkeys (space/m/f). The **video call is NOT in the widget** —
+WebRTC media can't cross tabs, so it runs on the web hub and floats over the site tab via **Document
+Picture-in-Picture** (`components/VideoCall.svelte` pop-out; Chromium-only, graceful message
+elsewhere). Closing the site tab reports you not-watching (you stay in the room). Code:
+`lib/satellite.ts` (`SatelliteController`), `lib/siteWidget.ts`, the top-frame branch of
+`entrypoints/sync.content.ts`, `web/src/components/SiteSatellite.svelte`, widget messages in
+`@sixseven/protocol/bridge`.
+**Removed:** the old extension-native own-tab (`lib/ownTab.ts`, `lib/partyWidget.ts`,
+`lib/roomSocket.ts`, `lib/call.ts`, `popup/ownTab.ts`) and room-by-code joining.
 
 **YouTube (§13) — built:** `srcKind:"youtube"` driven on the room page via the **IFrame Player API**
 (no extension). Native YT controls + muted autoplay ("tap to unmute") + bidirectional sync.
@@ -157,7 +180,7 @@ this site"). The content script reads `<video>.textTracks` in the engaged frame 
 nested-iframe embeds included — reports them up the bridge (`tracks`), and `selectTrack` routes back
 down so the frame reads the chosen track's cues into our overlay (offset/style apply), native
 fallback when cues aren't CORS-readable. Same `SubtitleController`/panel as upload + online search,
-mutually exclusive with them. Works for `embed` + own-tab `site` (over the bridge) **and** the
+mutually exclusive with them. Works for `embed` + `site` (over the bridge / cross-tab relay) **and** the
 same-origin direct `WebPlayer` (which reads its own `<video>.textTracks` directly — no bridge —
 via the controller's `directTracks` hook). Only YouTube lacks a "From this site" list. Parser
 shared at `@sixseven/protocol/subtitles`.
@@ -175,9 +198,9 @@ Linger speed). Room launcher is in the top bar (off the video). `components/{Rea
 **Playlist (§14) — built:** a per-room queue (Source panel: `+ Queue`, an "Up next" list with
 drag-to-reorder, play/remove/clear) with auto-advance when a video ends (players' `onEnded` / a new
 `ended` bridge msg) and a room-level autoplay toggle. The picker can add to the queue too. Server:
-`queue`/`currentId`/`autoplay`, control-mode gated. Room-page modes only; own-tab ignores it.
+`queue`/`currentId`/`autoplay`, control-mode gated. Works on any web room (incl. `site`).
 
-**Video call (§17) — built (room page + own-tab), pending live test:** optional 1:1 webcam/mic between
+**Video call (§17) — built (web room page), pending live test:** optional 1:1 webcam/mic between
 viewers (for groups not on Discord). **Peer-to-peer media — never through the server** (§2): the DO
 only relays SDP/ICE text. **Asymmetric:** `setCall {on}` flips `Member.inCall` (capped at `CALL_CAP=2`,
 over-cap → `error {code:"call_full"}`) = "join to watch"; turning the camera on is a separate
@@ -185,44 +208,50 @@ over-cap → `error {code:"call_full"}`) = "join to watch"; turning the camera o
 STUN-only unaffected. `rtcSignal {to/from,data}` relays signals to one peer. Core in
 `web/src/lib/call.ts` (`CallManager`, perfect-negotiation, renegotiates when a camera turns on; ICE via the member-gated `rtc.iceServers` op (`server/src/rtc.ts`): Cloudflare STUN always
 (free); TURN only if `TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are set (Cloudflare Realtime TURN, free ≤1000
-GB/mo, creds minted server-side) → STUN-only otherwise. **Two surfaces, same `CallManager` (duplicated
-in `web/src/lib/call.ts` + `extension/lib/call.ts` — protocol is DOM-free so can't host it):** the
-**room page** (`components/VideoCall.svelte` + top-bar **Call** button; a **draggable + resizable**
-corner dock), and **own-tab** (signaling over `RoomSocket`; tiles in a **separate draggable floating
-window** `.call-float`, and the widget panel's sections are an **accordion** — one open at a time —
-so it's not bloated; tiles managed imperatively so re-render never reloads them). Caveat for own-tab:
-a content script's `getUserMedia` is subject to the host page's `Permissions-Policy camera`, so a
-locked-down site (maybe Netflix) can block it — we surface a clear "site may block it" error.
-**Ambient auto-join (Discord/Meet):** you don't both click Call — once anyone is `inCall`, the others
-auto-surface + auto-join to *receive*, so turning a camera on just shows up. Web: `App.svelte`
-`showCall`/`callDismissed`; own-tab: `reconcileCall()` (auto-leaves if you were only watching and it
-empties). The dock **minimizes** (web grip chevron / own-tab `cf-min`) and auto-collapses over
-fullscreen. Call buttons use the Lucide video icon (no emoji).
+GB/mo, creds minted server-side) → STUN-only otherwise. **It lives on the web room page for all
+source kinds** (`web/src/lib/call.ts` `CallManager`, perfect-negotiation; `components/VideoCall.svelte`
++ top-bar **Call** button; a **draggable + resizable** corner dock that can **pop out into a Document
+Picture-in-Picture window** (the dock's DOM is moved into the PiP window; stylesheets copied) so the
+call floats over a `site` source's own tab — mini-Meet style; Chromium-only, with a graceful message
+elsewhere). Because the call now runs on the web page even for `site` sources, the old own-tab
+`getUserMedia`-blocked-by-`Permissions-Policy` caveat is **gone** (the extension's duplicate `call.ts`
+was deleted). **Ambient auto-join
+(Discord/Meet):** you don't both click Call — once anyone is `inCall`, the others auto-surface +
+auto-join to *receive*, so turning a camera on just shows up (`App.svelte` `showCall`/`callDismissed`).
+If you dismiss/leave while others stay, the top-bar Call button shows a **pulsing "Join call"
+indicator** (`callLive = remoteInCall && !iAmInCall`) so a running call is never invisible. The dock
+**minimizes** (grip chevron) and auto-collapses over fullscreen. Call buttons use the Lucide video
+icon (no emoji).
 
-**Own-tab perf fix:** the subtitle + reaction overlays used to run unconditional 60fps rAF loops
-that called `getBoundingClientRect()` every frame — on a heavy SPA (YouTube) that thrashed layout and
-caused lag/buffering *only while in a party*. Now `reactionLayer` only spins the loop while something
-is floating, and `subtitleLayer` skips layout entirely when idle and throttles it to ~5Hz when active
-(`LAYOUT_INTERVAL_MS`). Don't reintroduce a per-frame rect read.
+**Overlay perf (rAF):** the in-tab subtitle layer must not run an unconditional 60fps rAF that calls
+`getBoundingClientRect()` every frame — on a heavy SPA that thrashes layout and causes lag/buffering.
+`subtitleLayer` skips layout when idle and throttles it to ~5Hz when active (`LAYOUT_INTERVAL_MS`).
+Don't reintroduce a per-frame rect read.
 
-**Popup room launcher — built:** the popup's first tab is now **Room** (second = "Watch on this page").
-The Room tab *creates* "our room" from the extension: **＋ New empty room**, or pick a scanned video /
-paste a URL → **new room** (opens the deployed web room at `/r/<name>?src=…&kind=…#k=<secret>`; the page
-applies `?src` once the creator joins, then strips the query — see `session.ts`/App effect). A **Send to
-an open room instead** checkbox (shown only when a room tab is open) keeps the old deliver-to-open-room
-flow. Web base URL = `WEB_APP_URL` in `extension/lib/config.ts`.
+**Popup room launcher — built:** a single **Room** panel (the old "Watch on this page" own-tab tab
+is gone). It offers three **sources** — **This page** (the current tab as a `site` source, §11), a
+scanned **video**, or a **pasted URL** — and one shared **destination** chosen at the top: when a
+sixseven room tab is open it defaults to **Add to <room>** with a **Play now / Queue** toggle;
+otherwise (or if you pick **New room**) it opens a fresh web room at `/r/<name>?src=…&kind=…#k=<secret>`
+(the page applies `?src` once the creator joins, then strips it — `session.ts`/App effect). So all
+three sources flow through one `act()` that either delivers to the open room (via `PICKER_DELIVER`,
+which now carries `srcKind:"site"`) or creates a room. **＋ New empty room** still makes a bare lobby.
+YouTube auto-resolves to the `youtube` player even via "This page" (it's embeddable). Web base URL =
+`WEB_APP_URL` in `extension/lib/config.ts` (defaults to localhost under `wxt dev`).
 
 **Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam").
 
-**Deploy reminder:** new server features (own-tab `observer`, fun-layer `say`/`gif`, M2 mode, subtitle
-ordering, video-call `setCam`/`rtcSignal`/`rtc.iceServers`) only work once `npx partykit deploy` +
-`env push` are run — the extension always talks to the deployed server, and the deployed web is a static
-build (redeploy via `wrangler pages deploy`). The video call works STUN-only with no env; TURN turns on
+**Deploy reminder:** new server features (fun-layer `say`/`gif`, M2 mode, subtitle ordering,
+video-call `setCam`/`rtcSignal`/`rtc.iceServers`) only work once `npx partykit deploy` +
+`env push` are run — and the deployed web is a static build (redeploy via `wrangler pages deploy`).
+The `site` cross-tab relay is **all client-side** (background worker + content scripts); it needs no
+server change, but the extension and web build must both be redeployed/reloaded. The video call works STUN-only with no env; TURN turns on
 once `TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are in `.env` and `env push`ed.
 
-**Known caveats:** YouTube/own-tab need a user gesture per viewer for *sound* (autoplay policy;
-muted autostart works); anti-devtools / sandboxed-iframe sites may not be hookable (we don't fight
-them — §3). A `DEBUG_HUD` flag in `extension/lib/subtitleLayer.ts` toggles an on-screen subtitle readout (off).
+**Known caveats:** YouTube + `site` sources need a user gesture per viewer for *sound* (autoplay
+policy; muted autostart works); anti-devtools / sandboxed-iframe sites may not be hookable (we don't
+fight them — §3). A `site` joiner must already have access to the source (logged in) — we surface a
+clear "no video found" if the satellite tab has none. A `DEBUG_HUD` flag in `extension/lib/subtitleLayer.ts` toggles an on-screen subtitle readout (off).
 
 **Gotcha for contributors:** never pass a Svelte `$state` value straight to `postMessage` — proxies
 aren't structured-cloneable and silently throw. Send `$state.snapshot(...)` (see `subtitleController`).
@@ -231,24 +260,28 @@ aren't structured-cloneable and silently throw. Send `$state.snapshot(...)` (see
 
 pnpm monorepo (`packages/*`):
 - **protocol** — shared TS wire types; the one source of truth for the sync protocol. Main
-  entry = server↔client messages; `./bridge` subpath = room-page↔iframe postMessage messages.
+  entry = server↔client messages; `./bridge` subpath = room-page↔iframe postMessage messages;
+  `./xtab` subpath = cross-tab envelope/routing for `site` sources (hub ↔ background ↔ satellite).
   Server, web, and extension all import it.
 - **server** — PartyKit Durable Object (one per room): authoritative state, single clock,
   control-mode enforcement, buffer gate, heartbeat. Verified by `test/sync-client.mjs`.
 - **web** — Svelte 5 + Vite static SPA. **Owns the WebSocket** and room state; relays each
   `sync`/`gate` into the embed iframe via the bridge; renders overlay controls, presence, log.
-- **extension** — WXT MV3 content script (`all_frames`). The only code that touches the embed's
-  `<video>`: runs drift-correction (SPEC §4), reports `status`, re-hooks on `<video>` swap,
-  draws the in-iframe takeover overlay **and the personal subtitle layer**. Talks to the room
-  page over `window.postMessage`.
+- **extension** — WXT MV3 content script (`all_frames`) + a **background service worker**. The
+  content script is the only code that touches the embed's/site's `<video>`: runs drift-correction
+  (SPEC §4), reports `status`, re-hooks on `<video>` swap, draws the in-iframe takeover overlay
+  **and the personal subtitle layer**. For `embed` it talks to the room page over `window.postMessage`;
+  for `site` (§11) it runs a `SatelliteController` and the **background worker** relays bridge
+  messages between the web hub tab and the streaming-site tab (`tabs.sendMessage`).
 
 The DO also hosts a **member-gated subtitle proxy** (`onRequest`, `src/subtitles/`): OpenSubtitles
 + SubDL behind one interface, normalized to WebVTT, keys in `room.env` (never on the client). This
 is control-plane text, not video — see SPEC §2 ("no server in the *video path*"), §13.
 
-Architecture decision: **the room page owns the WS**, not a background service worker (SPEC §6
-allowed either). Stack: pnpm · TS (strict) · PartyKit · Svelte (Vite SPA) · WXT (MV3) · Biome
-(TS/JS) + Prettier (`.svelte`).
+Architecture decision: **the web room page owns the WS** for every source kind (SPEC §6 allowed
+either). The background service worker is **only a cross-tab relay** for `site` sources (§11) — it
+never holds a socket or room state. Stack: pnpm · TS (strict) · PartyKit · Svelte (Vite SPA) · WXT
+(MV3) · Biome (TS/JS) + Prettier (`.svelte`).
 
 ## Build/run commands
 

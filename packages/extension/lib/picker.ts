@@ -27,7 +27,7 @@ export interface AreYouRoomReply {
 export interface DeliverSourceMessage {
   type: typeof PICKER_DELIVER;
   url: string;
-  srcKind?: "embed" | "direct";
+  srcKind?: "embed" | "direct" | "site";
   queue?: boolean;
 }
 export interface DeliverSourceReply {
@@ -146,17 +146,47 @@ export function collectFrameCandidates(): MediaCandidate[] {
     const h = Math.round(r.height || v.videoHeight);
     const media = v.currentSrc || v.src || "";
     if (isHttp(media)) {
-      out.push({ type: "video", url: media, kind: "direct", pageUrl: here, pageTitle: document.title, direct: true, playing, width: w, height: h });
+      out.push({
+        type: "video",
+        url: media,
+        kind: "direct",
+        pageUrl: here,
+        pageTitle: document.title,
+        direct: true,
+        playing,
+        width: w,
+        height: h,
+      });
     } else {
       // blob:/MSE — no addressable URL, so offer the hosting page (embed it).
-      out.push({ type: "video", url: here, kind: "embed", pageUrl: here, pageTitle: document.title, direct: false, playing, width: w, height: h });
+      out.push({
+        type: "video",
+        url: here,
+        kind: "embed",
+        pageUrl: here,
+        pageTitle: document.title,
+        direct: false,
+        playing,
+        width: w,
+        height: h,
+      });
     }
     // Also surface the real stream URL from <source> children (e.g. an HLS
     // playlist behind a blob/MSE video) — a direct source the room can load.
     for (const s of Array.from(v.querySelectorAll("source"))) {
       const ss = (s as HTMLSourceElement).src;
       if (isHttp(ss)) {
-        out.push({ type: "video", url: ss, kind: "direct", pageUrl: here, pageTitle: document.title, direct: true, playing, width: w, height: h });
+        out.push({
+          type: "video",
+          url: ss,
+          kind: "direct",
+          pageUrl: here,
+          pageTitle: document.title,
+          direct: true,
+          playing,
+          width: w,
+          height: h,
+        });
       }
     }
   }

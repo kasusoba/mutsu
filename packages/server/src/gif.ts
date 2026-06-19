@@ -34,7 +34,18 @@ export async function searchGifs(query: string, key: string): Promise<GifResult[
     bundle: "messaging_non_clips",
   });
   const res = await fetch(`${BASE}?${params}`);
-  if (!res.ok) return [];
+  if (!res.ok) {
+    // Surface GIPHY's reason (e.g. an invalid/unactivated key → 401/403) instead
+    // of silently returning no results — otherwise a bad key looks like "no gifs".
+    let detail = "";
+    try {
+      const j = (await res.json()) as { message?: string; meta?: { msg?: string } };
+      detail = j?.message ?? j?.meta?.msg ?? "";
+    } catch {
+      /* non-JSON body */
+    }
+    throw new Error(`GIPHY ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
   const json = (await res.json()) as {
     data?: Array<{ id?: string; images?: Record<string, GiphyImage> }>;
   };

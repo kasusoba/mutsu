@@ -50,7 +50,7 @@
     error = null;
     try {
       const r = await room.gifSearch(q);
-      results = r.results;
+      results = r?.results ?? [];
       if (!results.length) error = "No GIFs found.";
     } catch (e) {
       error = (e as Error).message;

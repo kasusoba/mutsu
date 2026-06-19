@@ -220,9 +220,16 @@ export class RoomClient {
       body: JSON.stringify({ op, ...payload }),
     });
     const json = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
-    if (!res.ok || !json) {
+    // Surface error payloads (the server returns these with HTTP 200, e.g. an
+    // unconfigured proxy) instead of letting callers see an empty result.
+    if (!res.ok || !json || json.error) {
       const code = json?.error ?? `http ${res.status}`;
-      throw new Error(code === "quota" ? "Daily subtitle limit reached — try again later." : code);
+      const friendly: Record<string, string> = {
+        quota: "Daily subtitle limit reached — try again later.",
+        gif_not_configured:
+          "GIF search isn't set up on this server (no GIPHY_API_KEY). For the deployed server, run `partykit env push`.",
+      };
+      throw new Error(friendly[code] ?? code);
     }
     return json;
   }

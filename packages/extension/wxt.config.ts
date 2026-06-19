@@ -9,6 +9,8 @@ export default defineConfig({
   // into your own browser (Edge/Chrome) instead. The dev build still hot-reloads
   // because it connects back to the running `wxt dev` server.
   runner: { disabled: true },
+  // WXT's dev/hot-reload server defaults to :3000 (commonly taken); move it.
+  dev: { server: { port: 3197 } },
   manifest: {
     name: "sixseven",
     description: "Keep a watch party's video playback in sync.",
@@ -16,10 +18,16 @@ export default defineConfig({
     // sources (SPEC §12). The content script in the embed frame needs no API
     // permission; host_permissions lets it run inside cross-origin iframes and
     // lets the popup read tab URLs to find the room tab.
-    // `storage` holds own-tab party state (§11) shared between the popup and the
-    // source-tab content script.
-    permissions: ["scripting", "storage"],
+    // `storage` holds session pairings for site parties (§11), shared between the
+    // background relay and the content scripts. `tabs` lets the background relay
+    // route bridge messages between the hub tab and the site tab and notice when
+    // either closes (`tabs.onRemoved`).
+    permissions: ["scripting", "storage", "tabs"],
     host_permissions: ["<all_urls>"],
+    // The in-tab widget (§11) renders the extension icon in its floating bubble;
+    // a content-script <img> can only load extension resources that are
+    // web-accessible.
+    web_accessible_resources: [{ resources: ["icon/*.png"], matches: ["<all_urls>"] }],
     // The toolbar button opens the "share to room" picker — WXT wires the action
     // from the popup entrypoint and takes its tooltip from the popup's <title>.
     // WXT auto-fills `manifest.icons` from public/icon/{size}.png, but not the

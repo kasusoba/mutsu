@@ -17,19 +17,10 @@
 import type { FrameToPageMessage, PageToFrameMessage } from "@sixseven/protocol/bridge";
 import { unwrap, wrap } from "@sixseven/protocol/bridge";
 import { PICKER_TAG, type PickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
+import { type XtabMessage, unwrapXtab, wrapXtab } from "@sixseven/protocol/xtab";
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/sandbox";
-import {
-  MSG_GET_STATE,
-  MSG_SET_WIDGET_HIDDEN,
-  MSG_START_OWNTAB,
-  MSG_STOP_OWNTAB,
-  PARTIES_KEY,
-  partyForUrl,
-  removeParty,
-} from "../lib/config";
 import { Overlay } from "../lib/overlay";
-import { OwnTabController } from "../lib/ownTab";
 import {
   type AreYouRoomReply,
   type DeliverSourceReply,
@@ -37,6 +28,7 @@ import {
   PICKER_PING,
   type PickerRuntimeMessage,
 } from "../lib/picker";
+import { SatelliteController } from "../lib/satellite";
 import { SubtitleLayer } from "../lib/subtitleLayer";
 import { VideoHook } from "../lib/videoHook";
 
@@ -89,66 +81,71 @@ export default defineContentScript({
         return; // not ours — let other listeners (if any) handle it
       });
 
-      // Own-tab watch party (§11): if this tab is an active party source, become
-      // the controller — own the WS, hook the site's own <video>, show the
-      // widget. No web room page involved. Driven by chrome.storage (written by
-      // the popup) plus direct popup messages for start/stop/hide.
-      let ownTab: OwnTabController | null = null;
-      // Synchronous guard: start is async (awaits storage), and the popup both
-      // writes storage AND messages us on create — without this, both calls slip
-      // past an `if (ownTab)` check before `ownTab` is set and we'd spin up two
-      // controllers/sockets (the duplicate "alice" members).
-      let starting = false;
-      const stopOwnTab = () => {
-        ownTab?.destroy();
-        ownTab = null;
+      // Site party plumbing (§11). This top frame plays one of two message-driven
+      // roles — never both:
+      //   HUB: the web room page. App.svelte posts xtab envelopes to our window;
+      //        we forward them to the background relay, and post background→page
+      //        traffic (relay-up / satellite state) back to the window for App.
+      //   SATELLITE: a frame-forbidding site the background has paired to a room;
+      //        we run a SatelliteController that drives this tab's <video>.
+      let satellite: SatelliteController | null = null;
+      const stopSatellite = () => {
+        satellite?.destroy();
+        satellite = null;
       };
-      const leaveOwnTab = async () => {
-        const p = await partyForUrl(location.href);
-        if (p) await removeParty(p.sourceUrl);
-        stopOwnTab();
+      const startSatellite = (room: string) => {
+        if (satellite) return;
+        satellite = new SatelliteController(room);
+        satellite.start();
       };
-      const startOwnTab = async () => {
-        if (ownTab || starting) return;
-        starting = true;
-        try {
-          const p = await partyForUrl(location.href);
-          if (!p || ownTab) return;
-          ownTab = new OwnTabController(p, () => void leaveOwnTab());
-          ownTab.start();
-        } finally {
-          starting = false;
+
+      // page → background: forward the hub's OUTBOUND xtab envelopes. (Our own
+      // window.postMessage of background→page traffic echoes here too, but those
+      // are inbound kinds and are skipped — so no loop.)
+      window.addEventListener("message", (e: MessageEvent) => {
+        if (e.source !== window || e.origin !== location.origin) return;
+        const msg = unwrapXtab(e.data);
+        if (!msg) return;
+        if (
+          msg.kind === "registerHub" ||
+          msg.kind === "openSatellite" ||
+          msg.kind === "unpair" ||
+          (msg.kind === "relay" && msg.dir === "down")
+        ) {
+          void browser.runtime.sendMessage(msg).catch(() => {});
         }
-      };
+      });
+
+      // background → this tab: assignment (satellite) or hub-bound traffic.
       browser.runtime.onMessage.addListener((raw: unknown) => {
-        const m = raw as { type?: string; hidden?: boolean } | null;
-        if (!m || typeof m !== "object") return;
-        if (m.type === MSG_START_OWNTAB) {
-          startOwnTab();
-          return Promise.resolve({ ok: true });
-        }
-        if (m.type === MSG_STOP_OWNTAB) {
-          stopOwnTab();
-          return Promise.resolve({ ok: true });
-        }
-        if (m.type === MSG_SET_WIDGET_HIDDEN) {
-          ownTab?.setWidgetHidden(Boolean(m.hidden));
-          return Promise.resolve({ ok: true });
-        }
-        if (m.type === MSG_GET_STATE) {
-          return Promise.resolve(ownTab ? ownTab.getState() : null);
+        const msg = raw as XtabMessage | null;
+        if (!msg || typeof msg !== "object" || !("kind" in msg)) return;
+        switch (msg.kind) {
+          case "assignSatellite":
+            if (msg.active) startSatellite(msg.room);
+            else stopSatellite();
+            return Promise.resolve({ ok: true });
+          case "relay":
+            // Down → this tab is the satellite (drive the video). Up → this tab is
+            // the hub (hand it to App via the window).
+            if (msg.dir === "down" && satellite) satellite.handleDown(msg.msg);
+            else if (msg.dir === "up") window.postMessage(wrapXtab(msg), location.origin);
+            return;
+          case "satelliteState":
+            window.postMessage(wrapXtab(msg), location.origin);
+            return;
         }
         return;
       });
-      // The popup may create/join a party for this tab while it's already open.
-      browser.storage.onChanged.addListener((changes, area) => {
-        if (area !== "local" || !changes[PARTIES_KEY]) return;
-        partyForUrl(location.href).then((p) => {
-          if (p && !ownTab) startOwnTab();
-          else if (!p && ownTab) stopOwnTab();
-        });
-      });
-      startOwnTab();
+
+      // Am I a paired satellite? (Opened/assigned for a room, or just reloaded.)
+      void browser.runtime
+        .sendMessage({ kind: "satelliteHello", url: location.href } satisfies XtabMessage)
+        .then((r) => {
+          const room = (r as { room?: string | null } | null)?.room;
+          if (room) startSatellite(room);
+        })
+        .catch(() => {});
       return;
     }
 

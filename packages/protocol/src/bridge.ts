@@ -19,7 +19,7 @@
  * positions and intents, never media.
  */
 
-import type { Intent } from "./index.ts";
+import type { Intent, Member, MemberId, SayKind } from "./index.ts";
 
 /** Tag on every bridge message so each side can ignore unrelated postMessages. */
 export const BRIDGE_TAG = "sixseven-bridge" as const;
@@ -130,6 +130,40 @@ export interface SelectTrackMessage {
   trackId: string | null;
 }
 
+/** Hub → satellite (§11): the room's members, for the in-site-tab widget. Sent on
+ *  change so the widget shows who's connected without tabbing back to the room. */
+export interface WidgetMembersMessage {
+  kind: "widgetMembers";
+  members: Member[];
+  self: MemberId | null;
+}
+
+/** Hub → satellite (§11): an ephemeral chat/reaction/gif to show in the widget +
+ *  float over the video. Mirrors the room page's fun layer (§12). */
+export interface WidgetEventMessage {
+  kind: "widgetEvent";
+  sayKind: SayKind;
+  text: string;
+  from: MemberId;
+  name: string;
+  /** True if this is our own message echoed back (style it as "you"). */
+  self: boolean;
+}
+
+/** Member-gated proxy ops the in-tab widget can ask the hub to run on its behalf
+ *  (it has no socket): GIPHY + subtitle search/download (§11/§13/§14). */
+export type WidgetProxyOp = "gif.search" | "subs.search" | "subs.download";
+
+/** Hub → satellite (§11): the result of a `widgetProxy` RPC, matched by `reqId`. */
+export interface WidgetProxyResultMessage {
+  kind: "widgetProxyResult";
+  reqId: number;
+  ok: boolean;
+  /** The op's result (shape is op-specific; the widget casts it). */
+  result?: unknown;
+  error?: string;
+}
+
 export type PageToFrameMessage =
   | HelloMessage
   | ApplyMessage
@@ -137,7 +171,10 @@ export type PageToFrameMessage =
   | SetSubtitlesMessage
   | SetSubtitleStyleMessage
   | SetHiddenMessage
-  | SelectTrackMessage;
+  | SelectTrackMessage
+  | WidgetMembersMessage
+  | WidgetEventMessage
+  | WidgetProxyResultMessage;
 
 // ── frame → page ────────────────────────────────────────────────────────────
 
@@ -186,13 +223,32 @@ export interface TracksMessage {
   tracks: TrackInfo[];
 }
 
+/** Satellite → hub (§11): the user typed/clicked a chat/reaction/gif in the
+ *  in-site-tab widget; the hub relays it to the room as a `say`. */
+export interface WidgetSayMessage {
+  kind: "widgetSay";
+  sayKind: SayKind;
+  text: string;
+}
+
+/** Satellite → hub (§11): run a member-gated proxy op (the widget has no socket).
+ *  The hub runs it on the room socket and replies with `widgetProxyResult`. */
+export interface WidgetProxyMessage {
+  kind: "widgetProxy";
+  reqId: number;
+  op: WidgetProxyOp;
+  payload: Record<string, unknown>;
+}
+
 export type FrameToPageMessage =
   | ReadyMessage
   | HookedMessage
   | FrameStatusMessage
   | LocalControlMessage
   | EndedMessage
-  | TracksMessage;
+  | TracksMessage
+  | WidgetSayMessage
+  | WidgetProxyMessage;
 
 // ── envelope + helpers ──────────────────────────────────────────────────────
 

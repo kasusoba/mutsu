@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { PageBridge } from "../lib/bridge";
+  import type { RoomBridge } from "../lib/bridge";
 
   interface Props {
     src: string | null;
-    bridge: PageBridge;
+    bridge: RoomBridge;
   }
   const { src, bridge }: Props = $props();
 

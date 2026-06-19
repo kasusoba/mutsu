@@ -27,7 +27,8 @@
   import SubtitlePanel from "./components/SubtitlePanel.svelte";
   import VideoCall from "./components/VideoCall.svelte";
   import { isPickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
-  import { PageBridge } from "./lib/bridge";
+  import { RoomBridge } from "./lib/bridge";
+  import SiteSatellite from "./components/SiteSatellite.svelte";
   import { RoomClient } from "./lib/room.svelte";
   import {
     loadNickname,
@@ -42,7 +43,10 @@
   let loc = $state(readRoomLocation());
   let nickname = $state(loadNickname());
   let room = $state<RoomClient | null>(null);
-  let bridge = $state<PageBridge | null>(null);
+  let bridge = $state<RoomBridge | null>(null);
+  // Lifecycle of the satellite tab for a `site` source (§11): "none" = not opened
+  // yet, "open" = a paired tab is driving it, "closed" = the tab went away.
+  let satelliteState = $state<"none" | "open" | "closed">("none");
   let subs = $state<SubtitleController | null>(null);
   // Live playback position reported by the active frame (drives the scrubber).
   // `at` is a performance.now() stamp so the bar can interpolate between reports.
@@ -97,6 +101,11 @@
   function onLocalControlReport(intent: Intent, time: number) {
     room?.control(intent, time);
   }
+  // Site source (§11): open/pair the satellite tab on a user gesture.
+  function openSatelliteTab() {
+    const src = room?.sync?.src;
+    if (src) bridge?.openSatellite(src);
+  }
   // Playlist auto-advance (§16): when our player ends, ask the server for the
   // next queued item. Gated to controllers; the server dedups via afterId so
   // multiple viewers ending at once don't skip several.
@@ -118,7 +127,7 @@
     saveNickname(nick);
     nickname = nick;
 
-    const b = new PageBridge();
+    const b = new RoomBridge(loc.room);
     // No configured host → talk to our own origin (the dev server proxies
     // /parties to the local PartyKit; in prod set VITE_PARTYKIT_HOST). This lets
     // one tunnel serve both the page and the backend for cross-device testing.
@@ -152,16 +161,56 @@
     };
     b.onReady = () => s.resend();
     b.onLocalControl = onLocalControlReport;
-    b.onEnded = onEnded; // embed video ended → playlist auto-advance (§16)
-    b.onTracks = (tracks) => s.setTracks(tracks); // embed's own caption tracks (§13)
+    b.onEnded = onEnded; // embed/site video ended → playlist auto-advance (§16)
+    b.onTracks = (tracks) => s.setTracks(tracks); // source's own caption tracks (§13)
+    // Site source (§11): the satellite tab's lifecycle drives the SiteSatellite UI.
+    // If the tab goes away, you're still in the room (chat/call) but no longer
+    // watching — report not-ready so others don't see you as still watching, and
+    // the buffer gate ignores you (loading is non-blocking).
+    b.onSatelliteState = (state) => {
+      satelliteState = state;
+      if (state === "closed") {
+        playerStatus = "loading";
+        report("loading");
+      } else if (state === "open") {
+        // A freshly-mounted in-tab widget needs the current roster right away.
+        b.pushMembers($state.snapshot(r.members), r.self);
+      }
+    };
+    // Site source (§11): the in-tab widget's chat/reaction → relay to the room.
+    b.onSay = (sayKind, text) => r.say(sayKind, text);
+    // The in-tab widget has no socket, so it asks the hub to run member-gated
+    // proxy ops (GIPHY + subtitle search/download) and relays back the result.
+    b.onProxy = async (reqId, op, payload) => {
+      try {
+        const result =
+          op === "gif.search"
+            ? await r.gifSearch(String(payload.query ?? ""))
+            : op === "subs.search"
+              ? await r.subsSearch(
+                  String(payload.query ?? ""),
+                  "en",
+                  payload.season as number | undefined,
+                  payload.episode as number | undefined,
+                )
+              : await r.subsDownload(String(payload.id ?? ""));
+        b.pushProxyResult(reqId, true, result);
+      } catch (e) {
+        b.pushProxyResult(reqId, false, undefined, (e as Error).message);
+      }
+    };
 
     // Fun layer (§14): every event echoes back from the server (incl. our own),
     // so all clients render the same. Reactions float; chat goes to the panel +
-    // briefly floats as a bubble.
+    // briefly floats as a bubble. For a `site` source, also mirror it into the
+    // in-tab widget (over the relay) so it shows where the video is.
     r.onEvent = (e) => {
       if (e.kind === "reaction") spawnReaction(e.text);
       else if (e.kind === "gif") spawnGif(e.text);
       else if (e.kind === "chat") addChat(e.name, e.text, e.from === r.self);
+      if (sourceKind === "site") {
+        b.pushEvent({ sayKind: e.kind, text: e.text, from: e.from, name: e.name, self: e.from === r.self });
+      }
     };
 
     bridge = b;
@@ -237,11 +286,23 @@
   // backward to an old position every second (visible as jitter).
   let lastAppliedSync: SyncMessage | null = null;
   let lastGatePaused: boolean | null = null;
+  // Keep the bridge pointed at the right transport (iframe for embed, cross-tab
+  // for site); activating the hub the first time a site source is selected.
+  $effect(() => {
+    bridge?.setKind(sourceKind);
+  });
+  // Keep the in-site-tab widget's member roster live (§11) — push on any change.
+  // ($state.snapshot: members are proxies, not structured-cloneable for postMessage.)
+  $effect(() => {
+    if (sourceKind !== "site" || !room || !bridge) return;
+    bridge.pushMembers($state.snapshot(room.members), room.self);
+  });
   $effect(() => {
     if (!room?.sync || !bridge) return;
-    // Only embed sources use the iframe bridge; direct/youtube play in their own
-    // room-page components, site (own-tab) isn't rendered on the room page.
-    if (room.sync.srcKind !== "embed") return;
+    // Only embed + site sources use the bridge: embed over the iframe, site over
+    // the cross-tab relay to the satellite tab. direct/youtube play in their own
+    // room-page components and report via component props, not the bridge.
+    if (room.sync.srcKind !== "embed" && room.sync.srcKind !== "site") return;
     const sync = room.sync;
     const paused = room.gate.paused;
     if (sync === lastAppliedSync && paused === lastGatePaused) return;
@@ -286,10 +347,15 @@
     if (!first) subs?.clear();
     if (src) {
       report("loading");
-      failTimer = setTimeout(() => {
-        failTimer = null;
-        report("failed");
-      }, FAIL_GRACE_MS);
+      // For a `site` source the video lives in another tab the user opens on a
+      // gesture — don't fail it on a timer here; the satellite reports its own
+      // loading→failed grace once that tab is driving.
+      if (room?.sync?.srcKind !== "site") {
+        failTimer = setTimeout(() => {
+          failTimer = null;
+          report("failed");
+        }, FAIL_GRACE_MS);
+      }
     }
   });
 
@@ -384,6 +450,9 @@
   const iAmInCall = $derived(room?.members.some((m) => m.id === room?.self && m.inCall) ?? false);
   const remoteInCall = $derived(room?.members.some((m) => m.id !== room?.self && m.inCall) ?? false);
   const showCall = $derived((callOn || iAmInCall || remoteInCall) && !callDismissed);
+  // A call is happening that you're not in (e.g. you left/dismissed it) — surface
+  // a persistent indicator so you can rejoin, instead of it silently continuing.
+  const callLive = $derived(remoteInCall && !iAmInCall);
   // Reset the dismissal once the call is empty again, so the next person turning
   // their camera on re-opens it for us.
   $effect(() => {
@@ -477,17 +546,21 @@
         <button
           class="tb"
           class:on={showCall}
+          class:live={callLive}
           onclick={() => (showCall ? dismissCall() : openCall())}
-          title="Video call (up to 2)"
+          title={callLive ? "A call is in progress — click to join" : "Video call (up to 2)"}
         >
-          <Video size={16} /> Call
+          <Video size={16} /> {callLive && !showCall ? "Join call" : "Call"}
+          {#if callLive}<span class="call-dot" aria-hidden="true"></span>{/if}
         </button>
         <button class="tb" onclick={copyInvite} title="Copy the invite link">
           <Share2 size={16} /> Invite
         </button>
-        <button class="tb" class:on={activePanel === 'subs'} onclick={() => togglePanel('subs')} disabled={!room.sync?.src}>
-          <Captions size={16} /> Subtitles
-        </button>
+        {#if sourceKind !== "site"}
+          <button class="tb" class:on={activePanel === 'subs'} onclick={() => togglePanel('subs')} disabled={!room.sync?.src}>
+            <Captions size={16} /> Subtitles
+          </button>
+        {/if}
         <button class="tb" class:on={activePanel === 'source'} onclick={() => togglePanel('source')} disabled={!room.canControl}>
           <Link2 size={16} /> Source
         </button>
@@ -547,6 +620,13 @@
             onUserControl={onLocalControlReport}
             {onEnded}
           />
+        {:else if sourceKind === "site" && bridge}
+          <SiteSatellite
+            src={room.sync.src}
+            state={satelliteState}
+            status={playerStatus}
+            onOpen={openSatelliteTab}
+          />
         {:else}
           <Embed src={room.sync.src} {bridge} />
         {/if}
@@ -559,7 +639,7 @@
           <div class="spinner-wrap"><span class="spinner"></span></div>
         {/if}
 
-        {#if showHud && sourceKind === "embed" && hud}
+        {#if showHud && (sourceKind === "embed" || sourceKind === "site") && hud}
           <div class="hud">
             t={hud.t.toFixed(2)} · want={hud.want.toFixed(2)} · drift={hud.drift.toFixed(2)} ·
             {room.sync?.intent}{room.gate.paused ? " · GATED" : ""}{room.members.length <= 1
@@ -574,10 +654,11 @@
           <div class="toast {pickerNotice.ok ? 'ok' : 'bad'}">{pickerNotice.text}</div>
         {/if}
 
-        {#if extMissing && sourceKind === "embed"}
+        {#if extMissing && (sourceKind === "embed" || sourceKind === "site")}
           <div class="banner">
-            ⚠ sixseven extension not detected — embedded playback can't sync. Install/enable it,
-            then reload. (Direct, YouTube, and HLS sources play without the extension.)
+            ⚠ sixseven extension not detected — {sourceKind === "site" ? "this site" : "embedded"}
+            playback can't sync. Install/enable it, then reload. (Direct, YouTube, and HLS sources
+            play without the extension.)
           </div>
         {:else if sourceKind === "embed" && room.sync?.src && room.me?.status === "failed"}
           <div class="banner">
@@ -807,6 +888,36 @@
   .tb.on {
     border-color: var(--accent);
     background: color-mix(in srgb, var(--accent) 22%, var(--panel-2));
+  }
+  /* A call is in progress that you're not in — draw attention so you can rejoin. */
+  .tb.live {
+    position: relative;
+    border-color: var(--good);
+    color: var(--good);
+  }
+  .call-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 70%, transparent);
+    animation: callpulse 1.6s ease-out infinite;
+  }
+  @keyframes callpulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 70%, transparent);
+    }
+    70% {
+      box-shadow: 0 0 0 6px transparent;
+    }
+    100% {
+      box-shadow: 0 0 0 0 transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .call-dot {
+      animation: none;
+    }
   }
   .player-area {
     position: relative;

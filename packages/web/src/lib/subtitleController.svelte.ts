@@ -10,7 +10,7 @@ import {
   type SubtitleStyle,
   type TrackInfo,
 } from "@sixseven/protocol/bridge";
-import type { PageBridge } from "./bridge";
+import type { RoomBridge } from "./bridge";
 import type { RoomClient, SubResult } from "./room.svelte";
 import { parseSubtitles } from "./subtitles";
 
@@ -41,7 +41,7 @@ export class SubtitleController {
 
   constructor(
     private readonly room: RoomClient,
-    private readonly bridge: PageBridge,
+    private readonly bridge: RoomBridge,
   ) {}
 
   // The bridge does a structured clone (postMessage). Svelte $state values are

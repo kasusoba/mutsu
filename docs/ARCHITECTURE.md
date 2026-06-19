@@ -504,45 +504,69 @@ or forge headers (see Non-goals).
 - Nickname typed on join, stored in `localStorage` (remembered next time). No accounts.
 - Auto color/avatar derived from the nickname.
 
-## 11. Own-tab watch party (extension-native)
+## 11. Site sources — play in your own tab, hub stays on the web (`srcKind:"site"`)
 
-A second party surface, **fully driven by the extension** — no web room page involved.
-It's for watching on the *actual* streaming site (in your own tab), including sites that
-refuse to be framed. The only backend is the same PartyKit relay (content-neutral clock).
+Some sources refuse to be framed (Netflix-style `X-Frame-Options`), so they can't render in the
+room page's `<iframe>`. For these the video plays in **your own browser tab** on the real site —
+but the **web room page is still the single hub**: it owns the WebSocket and renders members,
+chat, video call, queue, and the sync state. There is **no room-less party**; a `site` source is
+just another source kind on an ordinary web room.
 
-**The principle: the connection lives with the video.** In room-page mode the room page owns
-the WebSocket because the video is on that page. In own-tab mode the video is in *your own tab*,
-so the **source tab's content script** owns the socket and is the room member. Close any other
-tab → sync is unaffected; close the source tab → you leave the party (correct). No MV3
-service-worker is involved (a tab can hold a socket indefinitely; an idle SW can't).
+**The constraint that shapes everything.** One viewer now spans two tabs in their browser: the
+**hub tab** (the web room page) and the **site tab** (the streaming page). If both opened a socket
+the server would count the viewer twice. So only the hub tab is the member; the site tab is a
+**dumb playback satellite** the hub drives. The hub can't `postMessage` another tab, so a new
+**background service worker** relays between them — the only MV3 context that can `tabs.sendMessage`
+between two arbitrary tabs. The pairing is **local to one browser** (your hub tab ↔ your site tab);
+cross-viewer sync still flows only through the DO. No video bytes anywhere (§2).
 
-**Flow (room codes, no invite links — nothing external touches our state):**
-- **Start** (popup → "Watch together on this tab"): mint a short **code**, connect, hook the
-  site's `<video>`, show the widget. The code is BOTH the room name and the capability
-  (~41 bits; gates casual guessing). The creator's content script `setSource(location.href, "site")`
-  so joiners know what to open.
-- **Join** (popup → enter code): the popup connects briefly as an **`observer`** (read-only,
-  not a presence member) to read the room's source URL, shows "Now watching X — [Open & join]",
-  then opens that page; its content script reads `chrome.storage` and joins as the real member.
+```
+WEB HUB TAB (App.svelte)                         SITE TAB (e.g. netflix.com)
+  RoomClient (the single WS member)                sync.content.ts (satellite mode)
+  members/chat/call/queue/sync  ── apply ──┐         SatelliteController → VideoHook
+        ▲ status/localControl/tracks/ended │         + subtitle layer + frame-tree relay
+        │ window.postMessage               │ tabs.sendMessage
+  web-page content script ──runtime──▶ BACKGROUND ◀──runtime── site content script
+                                    pairs {room → webTabId, siteTabId}
+```
 
-**Reuse:** `VideoHook` (drift/gate/echo/gesture), the frame-tree bridge (the player may be a
-nested iframe — same relay as the room page), host/open mode, the buffer gate, the protocol.
-**No injected video controls** (the site has its own); native play/pause/seek are relayed via the
-existing gesture-gated `localControl`. The only in-page UI is the **widget** (`partyWidget.ts`):
-a Shadow-DOM floating bubble, draggable + edge-magnetic, hideable (controls also mirror in the
-popup). Source-of-truth coherence is preserved by URL match: a tab only engages if its URL matches
-the room's source; a member on a different video shows as "not on the source", never silently synced.
+**Transport.** It reuses the **exact bridge protocol** (`@sixseven/protocol/bridge`,
+`apply`/`status`/`setSubtitles`/`selectTrack`/`tracks`/`localControl`/`ended`) — only the carrier
+differs. The xtab envelope + routing live in `@sixseven/protocol/xtab` (`registerHub`,
+`openSatellite`, `relay {dir}`, `assignSatellite {active}`, `registerSatellite`, `satelliteState`,
+`satelliteHello`, `unpair`). On the web, `RoomBridge` (`web/src/lib/bridge.ts`) is one facade over
+two transports — `PageBridge` (iframe, for `embed`) and `CrossTabBridge` (xtab, for `site`) — chosen
+by the current `srcKind`, so `App.svelte` and `SubtitleController` are transport-agnostic.
 
-Code: `lib/roomSocket.ts` (framework-agnostic client), `lib/ownTab.ts` (top-frame controller),
-`lib/partyWidget.ts`, `lib/config.ts` (party storage + code), `entrypoints/popup/ownTab.ts`.
+**Flow (web invite URLs — same capability link as any room):**
+- **Start** (popup → "Watch this page together"): opens a fresh web room with
+  `?src=<thisTabUrl>&kind=site`. The room page applies it as a `site` source and shows the
+  **SiteSatellite** panel ("Playing in your own tab — Open <host>").
+- **Open/join**: the **"Open <host>"** button (a user gesture — also satisfies autoplay/sound
+  policy) sends `openSatellite`; the background **reuses an already-open tab on the same source**
+  (the creator's current tab) or opens a new one (a joiner), assigns it, and the site tab's
+  content script becomes the satellite. Joiners reach all this by opening the room's invite URL.
+- **Lifecycle**: if the site tab closes the hub shows "tab closed — reopen"; if the hub closes the
+  background stands the satellite down. A reloaded site tab re-pairs via `satelliteHello`.
+
+**Reuse:** `VideoHook` (drift/gate/echo/gesture), the frame-tree bridge (the player may be a nested
+iframe), host/open mode, the buffer gate, personal subtitles — all unchanged. **No injected video
+controls** (the site has its own); native play/pause/seek relay via the gesture-gated `localControl`.
+A nice consequence: chat/call now run on the **web page**, so the call's `getUserMedia` is no longer
+subject to the streaming site's `Permissions-Policy` (the old own-tab caveat is gone).
+
+Code: `entrypoints/background.ts` (relay), `lib/satellite.ts` (`SatelliteController`),
+the top-frame branch of `entrypoints/sync.content.ts` (hub-relay + satellite assignment),
+`web/src/lib/bridge.ts` (`RoomBridge`/`CrossTabBridge`), `web/src/components/SiteSatellite.svelte`,
+`@sixseven/protocol/xtab`.
 
 ## 12. Fun layer (reactions · chat · GIFs)
 
 Ephemeral social overlay on top of any source — never persisted (it isn't playback truth) and
 never in the video path (§2). One small channel carries it all: a client `say {kind,text}`
 (`kind` = `reaction` | `chat` | `gif`) that the DO fans out to everyone as `event` and forgets,
-with a light per-connection rate limit. Works identically on the room page and the own-tab widget
-because both hold a socket.
+with a light per-connection rate limit. It runs on the web room page for every source kind
+(including `site`, whose hub is the web page).
 
 - **Reactions** — an emoji floats up over the video and fades. Launcher lives in the room top bar
   (out of the video, non-disruptive) / the widget panel.
@@ -591,7 +615,7 @@ a not-ready client reports stalled → soft-pause); off → it loads paused. A m
 `setSource` always loads paused. UI: the Source panel — `+ Queue` adds, an "Up next" list with
 **drag-to-reorder** (`queueReorder {id,toIndex}`), play/remove, an autoplay checkbox, and clear.
 The extension picker can also add to the queue (a "Add to queue" toggle → `PickSourceMessage.queue`).
-Own-tab ignores the playlist (single-source-per-site).
+The playlist works on any web room, including `site` sources (queue items are just URLs).
 
 ## 17. Video call (WebRTC, peer-to-peer)
 
@@ -609,11 +633,12 @@ watches — and STUN-only is unaffected (it's per-connection NAT traversal, inde
 member is `inCall`, every other client auto-surfaces the call UI and auto-joins to *receive* —
 turning a camera on just works, the others see it without clicking. A deliberate Leave is
 remembered (`callDismissed`) so it doesn't snap back open while others are still in; it resets once
-the call empties. On the web this lives in `App.svelte` (`showCall` = `callOn || iAmInCall ||
-remoteInCall`); in own-tab it's `OwnTabController.reconcileCall()` (which also auto-leaves if you
-were only watching and the call empties). Auto-join respects `CALL_CAP`, so it never spams
-`call_full`. The webcam dock can be **minimized** (web `VideoCall` grip chevron; own-tab call-float
-`cf-min`) and auto-collapses over fullscreen video, since the overlay is otherwise intrusive.
+the call empties. This lives in `App.svelte` (`showCall` = `callOn || iAmInCall || remoteInCall`).
+Auto-join respects `CALL_CAP`, so it never spams `call_full`. The webcam dock can be **minimized**
+(grip chevron) and auto-collapses over fullscreen video, since the overlay is otherwise intrusive.
+The call runs on the **web room page for every source kind** — including `site` (§11), where the
+video is in another tab but the hub (and thus the call) is on the web page; this removes the old
+own-tab `getUserMedia`/`Permissions-Policy` limitation.
 
 **Presence + signaling (server↔client):**
 - `setCall {on}` → flips `Member.inCall` and rebroadcasts `members`, enforcing a **2-participant cap**
@@ -626,9 +651,9 @@ were only watching and the call empties). Auto-join respects `CALL_CAP`, so it n
 **Media path:** the client (`web/src/lib/call.ts`, `CallManager`) opens an `RTCPeerConnection`
 to each other member whose `cam` is on, using the **WHATWG perfect-negotiation** pattern (a
 deterministic polite/impolite role by id so simultaneous offers don't glare). It's
-transport-agnostic (takes a "send signal" callback + "get ICE servers"), so the own-tab widget
-can reuse it later. UI: `components/VideoCall.svelte` — corner webcam tiles + mic/cam/leave,
-toggled by the top-bar **Call** button.
+transport-agnostic (takes a "send signal" callback + "get ICE servers"). UI:
+`components/VideoCall.svelte` — corner webcam tiles + mic/cam/leave, toggled by the top-bar
+**Call** button.
 
 **ICE servers (`rtc.iceServers` op, member-gated, `server/src/rtc.ts`):** STUN is always
 `stun.cloudflare.com` (free, unlimited) — enough for most home-network pairs to connect P2P.
