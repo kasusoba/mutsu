@@ -13,6 +13,7 @@
     "dev:web": "pnpm --filter @sixseven/web dev",
     "dev:ext": "pnpm --filter @sixseven/extension dev",
     "deploy:server": "pnpm --filter @sixseven/server deploy",
+    "deploy:web": "pnpm --filter @sixseven/web deploy:cf",
     "test:sync": "pnpm --filter @sixseven/server test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
