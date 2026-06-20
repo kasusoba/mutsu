@@ -81,19 +81,38 @@ export class SiteWidget {
   private dx = 0;
   private dy = 0;
 
+  /** Window capture-phase shield: swallow printable keys typed in the widget
+   *  before page/extension capture-phase shortcut listeners can see them. */
+  private readonly shield = (e: KeyboardEvent): void => {
+    if (e.key.length !== 1) return; // control keys pass through to our handlers
+    if (e.composedPath().includes(this.host)) e.stopImmediatePropagation();
+  };
+
   constructor(private readonly opts: SiteWidgetOpts) {
     this.host = document.createElement("div");
     this.host.style.cssText = "position:fixed;top:84px;right:16px;z-index:2147483646;";
     this.root = this.host.attachShadow({ mode: "open" });
     this.root.innerHTML = this.html();
-    // Keyboard isolation: any key event originating inside the widget is stopped
-    // at the shadow root so it never reaches the host page (its player hotkeys:
-    // space/m/f) or other extensions' bubble-phase shortcut listeners. (Browser
-    // command shortcuts + capture-phase listeners can't be stopped from a content
-    // script — that's a platform limit.) Typing still works: the input gets the
-    // key first; we only stop it crossing out of the shadow.
+    // Keyboard isolation, layer 1 (bubble): any key event originating inside the
+    // widget is stopped at the shadow root so it never reaches the host page (its
+    // player hotkeys: space/m/f) or other extensions' BUBBLE-phase listeners.
+    // Typing still works: the input gets the key first; we only stop it crossing
+    // out of the shadow.
     for (const ev of ["keydown", "keyup", "keypress"] as const) {
       this.root.addEventListener(ev, (e) => e.stopImmediatePropagation());
+    }
+    // Keyboard isolation, layer 2 (window capture): the bubble stop above is too
+    // LATE for site players and especially OTHER extensions, which bind keydown in
+    // the CAPTURE phase on document/window — that fires BEFORE the event reaches
+    // our input. A window capture-phase listener runs first of all, and DOM
+    // propagation is shared across isolated worlds, so stopping here blocks those
+    // handlers too. We only swallow PRINTABLE single-character keys (a, k, space…
+    // — what fires letter shortcuts) originating inside our shadow host; control
+    // keys (Enter/Escape/Tab) pass through so our own panel handlers still fire,
+    // and layer 1 keeps THOSE from leaking on the bubble back up. Typing is
+    // unaffected: stopPropagation never cancels the default action.
+    for (const ev of ["keydown", "keyup", "keypress"] as const) {
+      window.addEventListener(ev, this.shield, true);
     }
     this.wireHeader();
     this.wireChat();
@@ -143,6 +162,9 @@ export class SiteWidget {
     if (!gone) this.setHidden(false);
   }
   destroy(): void {
+    for (const ev of ["keydown", "keyup", "keypress"] as const) {
+      window.removeEventListener(ev, this.shield, true);
+    }
     this.host.remove();
   }
 
