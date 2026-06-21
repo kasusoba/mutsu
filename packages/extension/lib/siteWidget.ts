@@ -16,6 +16,26 @@ import { browser } from "wxt/browser";
 
 const EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "🎉"];
 const FAVS_KEY = "sixseven:gifFavs";
+/** Keys that move the caret / change the selection / edit text in a field —
+ *  swallowed inside our fields so they don't drive page/extension shortcuts
+ *  (e.g. asbplayer's Shift+Arrow subtitle offset) while you type. */
+const EDIT_KEYS = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+  "PageUp",
+  "PageDown",
+  "Backspace",
+  "Delete",
+]);
+function isTextField(node: EventTarget | undefined): boolean {
+  if (!(node instanceof HTMLElement)) return false;
+  const tag = node.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || node.isContentEditable;
+}
 /** Pixel movement before a header press counts as a drag (else it's a tap → hide). */
 const DRAG_THRESHOLD = 5;
 
@@ -81,11 +101,32 @@ export class SiteWidget {
   private dx = 0;
   private dy = 0;
 
-  /** Window capture-phase shield: swallow printable keys typed in the widget
-   *  before page/extension capture-phase shortcut listeners can see them. */
+  /** Window capture-phase shield: keystrokes typed in the widget never reach the
+   *  page's or another extension's shortcut listeners. Two classes are swallowed,
+   *  only when the event originates inside our host:
+   *   1. printable single-character keys (a, k, space…) — letter shortcuts.
+   *   2. caret/selection/editing keys (arrows incl. Shift/Ctrl+Arrow, Home, End,
+   *      PageUp/Down, Backspace, Delete; Enter in a textarea) — but ONLY while
+   *      focus is in one of our own fields, else e.g. asbplayer's "Shift+Arrow =
+   *      subtitle offset" fires and even preventDefaults our input so text can't
+   *      be selected.
+   *  stopPropagation never cancels the DEFAULT action, so the caret still moves,
+   *  text still highlights, and characters still insert (inputs read `input`, not
+   *  keydown). Enter (in single-line inputs), Escape and Tab pass through to our
+   *  own panel handlers; layer 1 keeps those from leaking on the bubble back up. */
   private readonly shield = (e: KeyboardEvent): void => {
-    if (e.key.length !== 1) return; // control keys pass through to our handlers
-    if (e.composedPath().includes(this.host)) e.stopImmediatePropagation();
+    const path = e.composedPath();
+    if (!path.includes(this.host)) return; // not our widget
+    if (e.key.length === 1) {
+      e.stopImmediatePropagation(); // printable → letter/space shortcuts
+      return;
+    }
+    const target = path[0];
+    if (!isTextField(target)) return; // editing keys only matter while typing
+    const isTextarea = target instanceof HTMLElement && target.tagName === "TEXTAREA";
+    if (EDIT_KEYS.has(e.key) || (e.key === "Enter" && isTextarea)) {
+      e.stopImmediatePropagation();
+    }
   };
 
   constructor(private readonly opts: SiteWidgetOpts) {
@@ -106,11 +147,10 @@ export class SiteWidget {
     // the CAPTURE phase on document/window — that fires BEFORE the event reaches
     // our input. A window capture-phase listener runs first of all, and DOM
     // propagation is shared across isolated worlds, so stopping here blocks those
-    // handlers too. We only swallow PRINTABLE single-character keys (a, k, space…
-    // — what fires letter shortcuts) originating inside our shadow host; control
-    // keys (Enter/Escape/Tab) pass through so our own panel handlers still fire,
-    // and layer 1 keeps THOSE from leaking on the bubble back up. Typing is
-    // unaffected: stopPropagation never cancels the default action.
+    // handlers too. It swallows printable keys plus (while typing in our fields)
+    // text caret/selection/editing keys — arrows, Shift+Arrow selection, Home/End,
+    // Backspace — which would otherwise drive page/extension shortcuts (e.g.
+    // asbplayer's Shift+Arrow subtitle offset) instead of editing. See `shield`.
     for (const ev of ["keydown", "keyup", "keypress"] as const) {
       window.addEventListener(ev, this.shield, true);
     }
