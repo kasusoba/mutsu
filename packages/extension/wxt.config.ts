@@ -11,9 +11,24 @@ export default defineConfig({
   runner: { disabled: true },
   // WXT's dev/hot-reload server defaults to :3000 (commonly taken); move it.
   dev: { server: { port: 3197 } },
-  manifest: {
+  manifest: ({ browser }) => ({
     name: "sixseven",
     description: "Keep a watch party's video playback in sync.",
+    // Firefox-only manifest keys (Chrome ignores/flags browser_specific_settings).
+    // AMO now requires `data_collection_permissions` on every new extension, and a
+    // stable `gecko.id` for the listing. We collect no data — the server only ever
+    // sees the room URL + playback clock, never video bytes or personal data (SPEC
+    // §2/§3) — so we declare `required: ["none"]` (the explicit "no data" consent).
+    ...(browser === "firefox"
+      ? {
+          browser_specific_settings: {
+            gecko: {
+              id: "sixseven@onesal.me",
+              data_collection_permissions: { required: ["none"] },
+            },
+          },
+        }
+      : {}),
     // `scripting` lets the picker popup scan the active tab for <video>/<iframe>
     // sources (SPEC §12). The content script in the embed frame needs no API
     // permission; host_permissions lets it run inside cross-origin iframes and
@@ -40,5 +55,5 @@ export default defineConfig({
         128: "/icon/128.png",
       },
     },
-  },
+  }),
 });
