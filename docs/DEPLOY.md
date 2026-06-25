@@ -29,8 +29,9 @@ cp .dev.vars.example .dev.vars   # fill in OpenSubtitles/SubDL/GIPHY/TURN keys
 pnpm dev                         # wrangler dev on http://127.0.0.1:8787
 
 # deploy:
-wrangler secret bulk .dev.vars   # push the same keys as production secrets (once / when they change)
-pnpm deploy                      # wrangler deploy → https://sync.onesal.me
+npx wrangler secret bulk .dev.vars   # push the same keys as production secrets (once / when they change)
+pnpm run deploy                      # wrangler deploy → https://sync.onesal.me
+#   NB: `pnpm run deploy`, not `pnpm deploy` — the latter is pnpm's built-in command.
 ```
 
 The stable backend is then `wss://sync.onesal.me`. (Forkers: change `name`,
