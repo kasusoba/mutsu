@@ -4,7 +4,7 @@
 //
 //   node packages/server/test/subs-smoke.mjs "Inception"
 
-const HOST = process.env.SIXSEVEN_HOST ?? "127.0.0.1:1999";
+const HOST = process.env.SIXSEVEN_HOST ?? "127.0.0.1:8787";
 const ROOM = `subs-${process.pid}`;
 const SECRET = "s3cret";
 const QUERY = process.argv[2] ?? "Inception";

@@ -5,7 +5,8 @@ import { defineConfig } from "vite";
 //
 // `__PARTYKIT_HOST__` is the WS/HTTP host for the room backend. When unset it
 // defaults to "" → the client uses the page's OWN origin (window.location.host)
-// and the dev server proxies `/parties/*` to the local PartyKit on :1999. That
+// and the dev server proxies `/parties/*` to the local `wrangler dev` on :8787.
+// That
 // means everything is one origin, so a single tunnel (e.g. `cloudflared tunnel
 // --url http://localhost:5173`) exposes both the page and the sync server for
 // cross-device testing — no env var, no deploy. Set VITE_PARTYKIT_HOST to a
@@ -23,7 +24,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       "/parties": {
-        target: "http://127.0.0.1:1999",
+        target: "http://127.0.0.1:8787",
         ws: true,
         changeOrigin: true,
       },

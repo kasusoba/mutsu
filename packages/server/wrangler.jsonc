@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sixseven",
+  "main": "src/server.ts",
+  "compatibility_date": "2025-01-01",
+  "observability": { "enabled": true },
+  // One Durable Object per room. Binding name `Main` so routePartykitRequest
+  // maps the client's default party "main" (/parties/main/<room>) to RoomServer.
+  "durable_objects": {
+    "bindings": [{ "name": "Main", "class_name": "RoomServer" }]
+  },
+  // SQLite-backed DO class — REQUIRED on the Workers free plan (classic
+  // `new_classes` is paid-only). Must be set on the first deploy of the class.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RoomServer"] }],
+  // Custom domain — needs onesal.me to be a zone in this Cloudflare account.
+  // wrangler creates the DNS record + cert; no *.partykit.dev handle in the URL.
+  "routes": [{ "pattern": "sync.onesal.me", "custom_domain": true }]
+}

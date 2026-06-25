@@ -32,10 +32,27 @@ import {
   encode,
   parseClientMessage,
 } from "@sixseven/protocol";
-import type * as Party from "partykit/server";
+import { type Connection, type ConnectionContext, Server, routePartykitRequest } from "partyserver";
 import { searchGifs } from "./gif.ts";
 import { type RtcEnv, iceServers } from "./rtc.ts";
 import { QuotaError, type SubEnv, downloadSubtitle, searchSubtitles } from "./subtitles/index.ts";
+
+/** Worker bindings: the room Durable Object namespace + the server-side secrets
+ *  (subtitle/GIF/TURN provider keys). Secrets come from `.dev.vars` in dev and
+ *  `wrangler secret` in production — never the client. */
+interface Env {
+  /** DO namespace; binding name `Main` so routePartykitRequest maps the client's
+   *  default party "main" (`/parties/main/<room>`) to this server. */
+  Main: DurableObjectNamespace<RoomServer>;
+  OPENSUBTITLES_API_KEY?: string;
+  OS_USERNAME?: string;
+  OS_PASSWORD?: string;
+  SUBDL_API_KEY?: string;
+  SUBS_PROVIDER_ORDER?: string;
+  GIPHY_API_KEY?: string;
+  TURN_KEY_ID?: string;
+  TURN_KEY_API_TOKEN?: string;
+}
 
 /** Per-room authoritative state, persisted under a single storage key. */
 interface RoomState {
@@ -123,21 +140,19 @@ function freshState(): RoomState {
   };
 }
 
-export default class RoomServer implements Party.Server {
+export class RoomServer extends Server<Env> {
   /** Enable hibernation; state lives in storage, not memory (SPEC §16 risk 7). */
-  static options = { hibernate: true };
+  static override options = { hibernate: true };
 
   private s: RoomState = freshState();
   private loaded = false;
   /** Per-connection rate limit for the fun layer (§14), in-memory (ephemeral). */
   private sayBuckets = new Map<string, { count: number; resetAt: number }>();
 
-  constructor(readonly room: Party.Room) {}
-
   // ── lifecycle ───────────────────────────────────────────────────────────
 
-  async onStart(): Promise<void> {
-    const saved = await this.room.storage.get<RoomState>(STORAGE_KEY);
+  override async onStart(): Promise<void> {
+    const saved = await this.ctx.storage.get<RoomState>(STORAGE_KEY);
     if (saved) this.s = saved;
     if (!this.s.srcKind) this.s.srcKind = "embed"; // storage predating srcKind
     if (!this.s.queue) this.s.queue = []; // storage predating the playlist (§16)
@@ -154,7 +169,7 @@ export default class RoomServer implements Party.Server {
   /** Drop members that no longer have a live connection (stale presence). */
   private pruneGhosts(): boolean {
     const live = new Set<string>();
-    for (const conn of this.room.getConnections()) live.add(conn.id);
+    for (const conn of this.getConnections()) live.add(conn.id);
     let changed = false;
     for (const id of Object.keys(this.s.members)) {
       if (live.has(id)) continue;
@@ -169,14 +184,14 @@ export default class RoomServer implements Party.Server {
   }
 
   private async persist(): Promise<void> {
-    await this.room.storage.put(STORAGE_KEY, this.s);
+    await this.ctx.storage.put(STORAGE_KEY, this.s);
   }
 
   // ── subtitle proxy (SPEC §13) — HTTP, member-gated ────────────────────────
   // Proxies subtitle TEXT only (search JSON + KB-sized cue files), never video.
   // Same control-plane category as the sync clock; keeps provider keys server-side.
 
-  async onRequest(req: Party.Request): Promise<Response> {
+  override async onRequest(req: Request): Promise<Response> {
     if (!this.loaded) await this.onStart();
     const cors: Record<string, string> = {
       "Access-Control-Allow-Origin": "*",
@@ -200,7 +215,7 @@ export default class RoomServer implements Party.Server {
       return this.json({ error: "bad json" }, 400, cors);
     }
 
-    const env = this.room.env as unknown as SubEnv;
+    const env = this.env as unknown as SubEnv;
     try {
       if (body.op === "subs.search") {
         const results = await searchSubtitles(
@@ -226,7 +241,7 @@ export default class RoomServer implements Party.Server {
       if (body.op === "rtc.iceServers") {
         // Video call (§17): STUN always, TURN if keys are configured. Keys stay
         // server-side; the client only ever sees the resolved ICE-server list.
-        const servers = await iceServers(this.room.env as unknown as RtcEnv);
+        const servers = await iceServers(this.env as unknown as RtcEnv);
         return this.json({ iceServers: servers }, 200, cors);
       }
       return this.json({ error: "unknown op" }, 400, cors);
@@ -244,15 +259,18 @@ export default class RoomServer implements Party.Server {
     });
   }
 
-  async onConnect(conn: Party.Connection): Promise<void> {
+  override async onConnect(conn: Connection, _ctx: ConnectionContext): Promise<void> {
     if (!this.loaded) await this.onStart();
     // Not a member until a valid `join` arrives. Other messages are ignored
     // until then (admission gate, SPEC §10).
     conn.setState({ admitted: false });
   }
 
-  async onMessage(raw: string, sender: Party.Connection): Promise<void> {
+  override async onMessage(sender: Connection, message: string | ArrayBuffer): Promise<void> {
     if (!this.loaded) await this.onStart();
+    // Clients send text frames (protocol `encode` → JSON string); decode the
+    // rare binary frame defensively so a stray ArrayBuffer can't crash the DO.
+    const raw = typeof message === "string" ? message : new TextDecoder().decode(message);
     const msg = parseClientMessage(raw);
     if (!msg) return this.reject(sender, "bad_message", "unparseable message");
 
@@ -316,7 +334,12 @@ export default class RoomServer implements Party.Server {
     }
   }
 
-  async onClose(conn: Party.Connection): Promise<void> {
+  override async onClose(
+    conn: Connection,
+    _code: number,
+    _reason: string,
+    _wasClean: boolean,
+  ): Promise<void> {
     if (!this.loaded) await this.onStart();
     const member = this.s.members[conn.id];
     if (!member) return; // never admitted
@@ -356,7 +379,7 @@ export default class RoomServer implements Party.Server {
   // ── message handlers ──────────────────────────────────────────────────────
 
   private async handleJoin(
-    sender: Party.Connection,
+    sender: Connection,
     msg: Extract<ClientMessage, { type: "join" }>,
   ): Promise<void> {
     // Trust-on-first-use: the first join establishes the room secret (the
@@ -418,11 +441,7 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handleSetSource(
-    sender: Party.Connection,
-    src: string,
-    kind?: SourceKind,
-  ): Promise<void> {
+  private async handleSetSource(sender: Connection, src: string, kind?: SourceKind): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
     this.s.currentId = null; // a manually-set source isn't a queue item
     await this.applySource(src, kind, sender.id);
@@ -466,7 +485,7 @@ export default class RoomServer implements Party.Server {
   // ── playlist (§16) ──────────────────────────────────────────────────────────
 
   private async handleQueueAdd(
-    sender: Party.Connection,
+    sender: Connection,
     src: string,
     kind?: SourceKind,
     title?: string,
@@ -489,7 +508,7 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handleQueueRemove(sender: Party.Connection, id: string): Promise<void> {
+  private async handleQueueRemove(sender: Connection, id: string): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
     this.s.queue = this.s.queue.filter((i) => i.id !== id);
     if (this.s.currentId === id) this.s.currentId = null;
@@ -497,7 +516,7 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handleQueueClear(sender: Party.Connection): Promise<void> {
+  private async handleQueueClear(sender: Connection): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
     this.s.queue = [];
     this.s.currentId = null;
@@ -505,7 +524,7 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handlePlayItem(sender: Party.Connection, id: string): Promise<void> {
+  private async handlePlayItem(sender: Connection, id: string): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
     const item = this.s.queue.find((i) => i.id === id);
     if (!item) return;
@@ -514,7 +533,7 @@ export default class RoomServer implements Party.Server {
     this.broadcastPlaylist();
   }
 
-  private async handlePlayNext(sender: Party.Connection, afterId?: string | null): Promise<void> {
+  private async handlePlayNext(sender: Connection, afterId?: string | null): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
     // Dedup auto-advance from multiple clients: only advance if the item the
     // sender saw end is still the current one.
@@ -527,7 +546,7 @@ export default class RoomServer implements Party.Server {
     this.broadcastPlaylist();
   }
 
-  private async handleSetAutoplay(sender: Party.Connection, on: boolean): Promise<void> {
+  private async handleSetAutoplay(sender: Connection, on: boolean): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
     this.s.autoplay = Boolean(on);
     this.broadcastPlaylist();
@@ -540,7 +559,7 @@ export default class RoomServer implements Party.Server {
    *  presence — peers open a connection to whoever is `inCall`; the SDP/ICE
    *  handshake is relayed peer-to-peer via `rtcSignal`. You can be in the call
    *  without publishing (watch-only); leaving also clears the camera hint. */
-  private handleSetCall(sender: Party.Connection, on: boolean): void {
+  private handleSetCall(sender: Connection, on: boolean): void {
     const member = this.s.members[sender.id];
     if (!member) return;
     if (on && !member.inCall) {
@@ -556,7 +575,7 @@ export default class RoomServer implements Party.Server {
   }
 
   /** Camera-publishing display hint (no cap; only meaningful while in the call). */
-  private handleSetCam(sender: Party.Connection, on: boolean): void {
+  private handleSetCam(sender: Connection, on: boolean): void {
     const member = this.s.members[sender.id];
     if (!member || !member.inCall) return;
     member.cam = Boolean(on);
@@ -565,17 +584,13 @@ export default class RoomServer implements Party.Server {
 
   /** Relay a WebRTC signal (SDP/ICE) to ONE peer. The server never inspects the
    *  payload — control-plane text only, no media (the call is peer-to-peer). */
-  private handleRtcSignal(sender: Party.Connection, to: MemberId, data: unknown): void {
+  private handleRtcSignal(sender: Connection, to: MemberId, data: unknown): void {
     if (typeof to !== "string" || !this.s.members[to] || !this.s.members[sender.id]) return;
-    const peer = this.room.getConnection(to);
+    const peer = this.getConnection(to);
     if (peer) this.send(peer, { type: "rtcSignal", from: sender.id, data });
   }
 
-  private async handleQueueReorder(
-    sender: Party.Connection,
-    id: string,
-    toIndex: number,
-  ): Promise<void> {
+  private async handleQueueReorder(sender: Connection, id: string, toIndex: number): Promise<void> {
     if (!this.canControl(sender.id)) return this.correct(sender);
     const from = this.s.queue.findIndex((x) => x.id === id);
     if (from < 0 || typeof toIndex !== "number") return;
@@ -596,11 +611,11 @@ export default class RoomServer implements Party.Server {
     };
   }
   private broadcastPlaylist(): void {
-    this.room.broadcast(encode(this.playlistMessage()));
+    this.broadcast(encode(this.playlistMessage()));
   }
 
   private async handleControl(
-    sender: Party.Connection,
+    sender: Connection,
     intent: Intent,
     time: number,
     rate?: number,
@@ -638,7 +653,7 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handleSetMode(sender: Party.Connection, mode: Mode): Promise<void> {
+  private async handleSetMode(sender: Connection, mode: Mode): Promise<void> {
     if (mode !== "open" && mode !== "host") return;
     // setMode is privileged the same way control is (SPEC §8/§12).
     if (!this.canControl(sender.id)) return this.correct(sender);
@@ -650,7 +665,7 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handlePassControl(sender: Party.Connection, toId: MemberId): Promise<void> {
+  private async handlePassControl(sender: Connection, toId: MemberId): Promise<void> {
     // Only the current host in host mode can hand off (SPEC §8).
     if (this.s.mode !== "host" || sender.id !== this.s.hostId) return this.correct(sender);
     if (!this.s.members[toId]) return;
@@ -661,7 +676,7 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handleStatus(sender: Party.Connection, state: MemberStatus): Promise<void> {
+  private async handleStatus(sender: Connection, state: MemberStatus): Promise<void> {
     const member = this.s.members[sender.id];
     if (!member) return;
     member.status = state;
@@ -690,7 +705,7 @@ export default class RoomServer implements Party.Server {
     await this.persist();
   }
 
-  private async handleSkip(sender: Party.Connection, memberId: MemberId): Promise<void> {
+  private async handleSkip(sender: Connection, memberId: MemberId): Promise<void> {
     // Skipping is permissioned by the control mode (SPEC §9).
     if (!this.canControl(sender.id)) return this.correct(sender);
     if (!this.s.members[memberId]) return;
@@ -709,7 +724,7 @@ export default class RoomServer implements Party.Server {
 
   // ── fun layer (§14): ephemeral reaction / chat / gif fan-out ───────────────
 
-  private handleSay(sender: Party.Connection, kind: unknown, text: unknown): void {
+  private handleSay(sender: Connection, kind: unknown, text: unknown): void {
     const member = this.s.members[sender.id];
     if (!member) return;
     if (kind !== "reaction" && kind !== "chat" && kind !== "gif") return;
@@ -730,7 +745,7 @@ export default class RoomServer implements Party.Server {
     }
 
     // Fan out and forget — never stored in room state (it's not playback truth).
-    this.room.broadcast(
+    this.broadcast(
       encode({ type: "event", kind, text: clean, from: sender.id, name: member.name, at: now }),
     );
   }
@@ -793,12 +808,12 @@ export default class RoomServer implements Party.Server {
    */
   private async scheduleHeartbeat(): Promise<void> {
     if (this.s.intent === "playing") {
-      const existing = await this.room.storage.getAlarm();
-      if (existing == null) await this.room.storage.setAlarm(Date.now() + HEARTBEAT_MS);
+      const existing = await this.ctx.storage.getAlarm();
+      if (existing == null) await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_MS);
     }
   }
 
-  async onAlarm(): Promise<void> {
+  override async onAlarm(): Promise<void> {
     if (!this.loaded) await this.onStart();
     const now = Date.now();
 
@@ -827,7 +842,7 @@ export default class RoomServer implements Party.Server {
 
     // Re-arm while still playing; otherwise let the alarm lapse.
     if (this.s.intent === "playing") {
-      await this.room.storage.setAlarm(now + HEARTBEAT_MS);
+      await this.ctx.storage.setAlarm(now + HEARTBEAT_MS);
     }
     await this.persist();
   }
@@ -840,7 +855,7 @@ export default class RoomServer implements Party.Server {
   }
 
   /** Send the rejected sender a corrective sync so they snap back (SPEC §8). */
-  private correct(conn: Party.Connection): void {
+  private correct(conn: Connection): void {
     this.send(conn, this.syncMessage(Date.now()));
   }
 
@@ -892,27 +907,44 @@ export default class RoomServer implements Party.Server {
     const event: LogEvent = { ...partial, id: `${this.s.seq++}`, at: Date.now() };
     this.s.log.push(event);
     if (this.s.log.length > LOG_CAP) this.s.log = this.s.log.slice(-LOG_CAP);
-    this.room.broadcast(encode({ type: "log", event }));
+    this.broadcast(encode({ type: "log", event }));
   }
 
   /** `force` defaults true (a command); the heartbeat passes false. */
   private broadcastSync(force = true): void {
-    this.room.broadcast(encode(this.syncMessage(Date.now(), force)));
+    this.broadcast(encode(this.syncMessage(Date.now(), force)));
   }
 
   private broadcastMembers(): void {
-    this.room.broadcast(encode(this.membersMessage()));
+    this.broadcast(encode(this.membersMessage()));
   }
 
   private broadcastGate(): void {
-    this.room.broadcast(encode(this.gateMessage()));
+    this.broadcast(encode(this.gateMessage()));
   }
 
-  private send(conn: Party.Connection, msg: ServerMessage): void {
+  private send(conn: Connection, msg: ServerMessage): void {
     conn.send(encode(msg));
   }
 
-  private reject(conn: Party.Connection, code: string, message: string): void {
+  private reject(conn: Connection, code: string, message: string): void {
     conn.send(encode({ type: "error", code: code as never, message }));
   }
 }
+
+/**
+ * Worker entry. `routePartykitRequest` matches `/parties/:server/:room` against
+ * the DO bindings (server = kebab-cased binding name), so the client's default
+ * party "main" → the `Main` binding → a `RoomServer` instance per room. Handles
+ * both the WebSocket upgrade (sync) and the HTTP POST (subtitle/GIF/ICE proxy,
+ * via the DO's `onRequest`). Same `/parties/main/<room>` URLs as before, so no
+ * client change.
+ */
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    return (
+      (await routePartykitRequest(request, env as never)) ??
+      new Response("Not Found", { status: 404 })
+    );
+  },
+} satisfies ExportedHandler<Env>;

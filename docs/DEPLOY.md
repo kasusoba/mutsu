@@ -1,39 +1,41 @@
 # Deploying sixseven
 
-Everything here is free-tier. Three pieces: the **sync server** (PartyKit
-Durable Object), the **room page** (static, Cloudflare Pages), and the
-**extension** (per-browser). The room page talks to its own origin in dev; in
-production it talks to the deployed server via `VITE_PARTYKIT_HOST`.
+Everything here is free-tier. Three pieces: the **sync server** (a Cloudflare
+Durable Object via [PartyServer](https://github.com/cloudflare/partykit/tree/main/packages/partyserver)),
+the **room page** (static, Cloudflare Pages), and the **extension** (per-browser).
+The room page talks to its own origin in dev; in production it talks to the
+deployed server via `VITE_PARTYKIT_HOST`.
 
-## 1. Sync server (PartyKit on your own Cloudflare)
+## 1. Sync server (PartyServer → Cloudflare Workers)
 
-The server deploys to **your own Cloudflare account** under the custom domain
-`sync.onesal.me` — no `*.partykit.dev` username subdomain (PartyKit binds that to
-your original GitHub handle permanently, so a custom domain is the only way to
-keep the host handle-free). Cloud-prem deploys are free.
+The server is a plain Worker + Durable Object (one DO per room) built on
+PartyServer, deployed with `wrangler` to the custom domain `sync.onesal.me`. The
+client still speaks PartyKit-style `/parties/main/<room>` URLs — `partysocket`
+needs no change. Free tier: the DO is SQLite-backed (`new_sqlite_classes` in
+`wrangler.jsonc`), which is what the free plan requires.
 
 One-time setup:
 
-- Add **onesal.me** to your Cloudflare account so it's a Cloudflare zone — the
-  `sync` record is created there automatically on deploy.
-- Create a Cloudflare API token at <https://dash.cloudflare.com/profile/api-tokens>
-  with the **Edit Cloudflare Workers** template, and copy your **Account ID**
-  from the dashboard.
-
-The custom domain is already set in `packages/server/partykit.json`
-(`"domain": "sync.onesal.me"`), so deploy just needs the Cloudflare credentials:
+- Add **onesal.me** to your Cloudflare account so it's a zone — `wrangler`
+  creates the `sync` DNS record + cert from the `routes` entry on first deploy.
+- `npx wrangler login` (browser OAuth) — or set `CLOUDFLARE_API_TOKEN` /
+  `CLOUDFLARE_ACCOUNT_ID` for CI.
+- Local dev secrets: copy `.dev.vars.example` → `.dev.vars` and fill in (it's
+  gitignored). Production secrets are pushed separately (below).
 
 ```bash
 cd packages/server
-CLOUDFLARE_ACCOUNT_ID=<your-account-id> \
-CLOUDFLARE_API_TOKEN=<your-api-token> \
-  npx partykit deploy               # → https://sync.onesal.me
-npx partykit env push               # push .env (OpenSubtitles/SubDL keys) for the subtitle proxy
+cp .dev.vars.example .dev.vars   # fill in OpenSubtitles/SubDL/GIPHY/TURN keys
+pnpm dev                         # wrangler dev on http://127.0.0.1:8787
+
+# deploy:
+wrangler secret bulk .dev.vars   # push the same keys as production secrets (once / when they change)
+pnpm deploy                      # wrangler deploy → https://sync.onesal.me
 ```
 
-The stable backend is then `wss://sync.onesal.me`. (Forkers: set your own
-`"domain"` in `partykit.json`, or drop the field to fall back to the
-`<project>.<github-username>.partykit.dev` managed subdomain.)
+The stable backend is then `wss://sync.onesal.me`. (Forkers: change `name`,
+`routes`, and the DO binding in `packages/server/wrangler.jsonc` to your own
+Worker + domain; the `new_sqlite_classes` migration must stay for the free plan.)
 
 ## 2. Room page (Cloudflare Pages)
 

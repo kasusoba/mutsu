@@ -30,8 +30,8 @@ Those approaches (server relay, virtual browser, screen capture) are explicit no
 
 ## Stack (decided — Phase 0)
 
-- **Sync server:** PartyKit / Cloudflare Durable Objects (one DO per room). Deploy via
-  `npx partykit deploy`.
+- **Sync server:** Cloudflare Durable Objects via PartyServer (one DO per room). Deploy via
+  `wrangler deploy` (see `packages/server/wrangler.jsonc`).
 - **Frontend:** Svelte (static SPA).
 - **Extension:** MV3.
 - **Control modes:** per-room `mode` toggle — `open` (anyone controls) and `host`
@@ -135,7 +135,7 @@ for solo rooms; ghost members are pruned on start/join. `?hud` on the room URL s
 currentTime/server-time/drift (works for both direct and embed). Verified smooth solo + 2-device,
 direct + embed.
 
-**Deploy:** see [docs/DEPLOY.md](docs/DEPLOY.md). Server → `npx partykit deploy` (Cloudflare DO, free);
+**Deploy:** see [docs/DEPLOY.md](docs/DEPLOY.md). Server → `wrangler deploy` (Cloudflare DO, free, SQLite-backed);
 room page → Cloudflare Pages with `VITE_PARTYKIT_HOST` baked in (`public/_redirects` gives the SPA
 fallback for `/r/<room>`); extension → load unpacked or publish. In dev, the web talks to its own
 origin and Vite proxies `/parties` to the local server, so one tunnel serves both for cross-device tests.
@@ -255,8 +255,8 @@ YouTube auto-resolves to the `youtube` player even via "This page" (it's embedda
 **Next up (idea list):** audio-only sources (YouTube Music etc. → "Spotify jam").
 
 **Deploy reminder:** new server features (fun-layer `say`/`gif`, M2 mode, subtitle ordering,
-video-call `setCam`/`rtcSignal`/`rtc.iceServers`) only work once `npx partykit deploy` +
-`env push` are run — and the deployed web is a static build (redeploy via `wrangler pages deploy`).
+video-call `setCam`/`rtcSignal`/`rtc.iceServers`) only work once `wrangler deploy` +
+`wrangler secret bulk .dev.vars` are run — and the deployed web is a static build (redeploy via `wrangler pages deploy`).
 The `site` cross-tab relay is **all client-side** (background worker + content scripts); it needs no
 server change, but the extension and web build must both be redeployed/reloaded. The video call works STUN-only with no env; TURN turns on
 once `TURN_KEY_ID`+`TURN_KEY_API_TOKEN` are in `.env` and `env push`ed.
@@ -300,7 +300,7 @@ never holds a socket or room state. Stack: pnpm · TS (strict) · PartyKit · Sv
 
 ```bash
 pnpm install            # bootstrap the workspace
-pnpm dev:server         # PartyKit backend (:1999). Loads packages/server/.env via --with-env
+pnpm dev:server         # wrangler dev backend (:8787). Loads packages/server/.dev.vars
 pnpm test:sync          # throwaway 2-client sync test (needs dev:server running) → 23/23
 node packages/server/test/subs-smoke.mjs "Inception"      # live subtitle-proxy test (needs dev:server)
 node --experimental-strip-types packages/server/test/vtt.test.mts  # SRT→VTT unit test
@@ -311,8 +311,8 @@ pnpm typecheck          # across all packages (svelte-check for web)
 pnpm lint               # biome check (TS/JS); pnpm format also runs prettier on .svelte
 ```
 
-**Secrets:** `packages/server/.env` (gitignored) holds the OpenSubtitles + SubDL keys; PartyKit
-dev loads it via `--with-env` (already in the `dev` script). For deploy: `npx partykit env push`.
+**Secrets:** `packages/server/.dev.vars` (gitignored) holds the OpenSubtitles + SubDL keys; `wrangler
+dev` loads it automatically. For deploy, push them as Worker secrets: `wrangler secret bulk .dev.vars`.
 Never commit keys; `.env.example` documents the vars.
 
 To try the MVP locally: `pnpm dev:server` + `pnpm --filter @sixseven/web dev`, build & load the

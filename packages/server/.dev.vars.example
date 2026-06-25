@@ -1,5 +1,6 @@
-# Copy to `.env` and fill in. The real `.env` is gitignored.
-# PartyKit `dev` reads `.env`; deploy uses `npx partykit env push`.
+# Copy to `.dev.vars` and fill in. The real `.dev.vars` is gitignored.
+# `wrangler dev` reads `.dev.vars` locally; for production push these with
+#   `wrangler secret bulk .dev.vars`   (or `wrangler secret put <NAME>` each).
 
 # OpenSubtitles API key (https://www.opensubtitles.com/consumers).
 OPENSUBTITLES_API_KEY=

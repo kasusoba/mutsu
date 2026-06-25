@@ -11,7 +11,7 @@
 //   pnpm dev:server         (in one terminal)
 //   pnpm test:sync          (in another)
 
-const HOST = process.env.SIXSEVEN_HOST ?? "127.0.0.1:1999";
+const HOST = process.env.SIXSEVEN_HOST ?? "127.0.0.1:8787";
 const ROOM = `test-${process.pid}`;
 const SECRET = "s3cret";
 const URL = `ws://${HOST}/parties/main/${ROOM}`;

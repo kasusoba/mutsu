@@ -4,17 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "partykit dev --with-env",
-    "deploy": "partykit deploy",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "test": "node test/sync-client.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@sixseven/protocol": "workspace:*",
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.2",
+    "partyserver": "^0.5.8"
   },
   "devDependencies": {
-    "partykit": "^0.0.115",
-    "partysocket": "^1.0.3"
+    "@cloudflare/workers-types": "^4.20260625.1",
+    "partysocket": "^1.0.3",
+    "wrangler": "^4.105.0"
   }
 }
