@@ -201,12 +201,15 @@ function renderCandidates(candidates: MediaCandidate[]): void {
     const sub = document.createElement("div");
     sub.className = "sub";
     const dims = c.width && c.height ? `${c.width}×${c.height}` : "";
-    sub.textContent = [
-      c.type === "iframe" ? "embed" : c.direct ? "video" : "page with player",
-      dims,
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    const label =
+      c.kind === "site"
+        ? "plays in its own tab"
+        : c.type === "iframe"
+          ? "embed"
+          : c.direct
+            ? "video"
+            : "page with player";
+    sub.textContent = [label, dims].filter(Boolean).join(" · ");
     meta.append(url, sub);
 
     btn.append(ico, meta);
@@ -399,6 +402,18 @@ async function refresh(): Promise<void> {
 rescanBtn.addEventListener("click", refresh);
 
 async function main(): Promise<void> {
+  // Show the satellite card (Show/Hide widget + live state) immediately — it only
+  // needs the active tab id, so don't make it wait behind the slower media scan /
+  // room discovery. Opening the popup to toggle a closed widget shouldn't stall.
+  try {
+    const [active] = await browser.tabs.query({ active: true, currentWindow: true });
+    if (active?.id != null) {
+      activeTabId = active.id;
+      await refreshSatellite();
+    }
+  } catch {
+    /* fall through — the full refresh below recovers it */
+  }
   await refresh();
   // Players (and room pages) often mount their <video>/attribute asynchronously,
   // after the popup's first scan. If we came up empty, retry once shortly — this

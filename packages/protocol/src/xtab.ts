@@ -42,6 +42,26 @@ export interface OpenSatelliteMessage {
   url: string;
 }
 
+/** Hub auto-pair (§11): adopt a tab THAT IS ALREADY OPEN on `url` as the satellite,
+ *  WITHOUT opening a new tab or stealing focus. Sent automatically when a `site`
+ *  source loads and the viewer already has that page open (e.g. the popup's "Watch
+ *  this page" creator). If no matching tab exists it's a no-op — the explicit
+ *  `openSatellite` (a user gesture) is the fallback that opens one. */
+export interface AdoptSatelliteMessage {
+  kind: "adoptSatellite";
+  room: string;
+  url: string;
+}
+
+/** Hub (§11): the room moved to a new page (someone pressed "Play this page for
+ *  everyone"). Navigate this hub's paired satellite tab to `url` so it follows —
+ *  skipped if the tab is already on that source (don't reload the page you set). */
+export interface NavigateSatelliteMessage {
+  kind: "navigateSatellite";
+  room: string;
+  url: string;
+}
+
 /** The hub is done with `room` (left / switched away from a site source). */
 export interface UnpairMessage {
   kind: "unpair";
@@ -114,6 +134,8 @@ export type RelayMessage = RelayDownMessage | RelayUpMessage;
 export type XtabMessage =
   | RegisterHubMessage
   | OpenSatelliteMessage
+  | AdoptSatelliteMessage
+  | NavigateSatelliteMessage
   | UnpairMessage
   | SatelliteHelloMessage
   | RegisterSatelliteMessage

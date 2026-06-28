@@ -23,6 +23,8 @@
     }
   }
 
+  const playing = $derived(state === "open" && (status === "ready" || status === "stalled"));
+
   // What the panel says, derived from the tab lifecycle + the player's status.
   const line = $derived(
     state === "open"
@@ -30,22 +32,40 @@
         ? "No video found in that tab — make sure it's playing, then it'll sync."
         : status === "loading"
           ? "Connecting to the tab…"
-          : "Playing in your own tab — kept in sync here."
+          : "Playing in your own tab — kept in sync with the room here."
       : state === "closed"
         ? "That tab closed. Reopen it to keep watching together."
-        : "This source can't be embedded, so it plays in its own tab — open it to join.",
+        : "This site can't play inside the room, so the video opens in its own tab.",
   );
-  const playing = $derived(state === "open" && (status === "ready" || status === "stalled"));
+
+  // A plain connection chip so "did it work?" is never a question.
+  type Chip = { text: string; cls: "ok" | "wait" | "bad" };
+  const chip = $derived<Chip>(
+    state === "open"
+      ? playing
+        ? { text: "Site tab connected", cls: "ok" }
+        : status === "failed"
+          ? { text: "No video in the tab", cls: "bad" }
+          : { text: "Connecting…", cls: "wait" }
+      : state === "closed"
+        ? { text: "Site tab closed", cls: "bad" }
+        : { text: "Site tab not open yet", cls: "wait" },
+  );
 </script>
 
 <div class="sat" class:live={playing}>
   <div class="badge"><MonitorPlay size={40} /></div>
   <p class="host">{host(src)}</p>
+  <p class="chip {chip.cls}"><span class="led"></span>{chip.text}</p>
   <p class="line">{line}</p>
   {#if state !== "open"}
     <button class="open" onclick={onOpen}>
       <ExternalLink size={16} /> Open {host(src)} to watch
     </button>
+    <p class="hint">
+      You'll have two tabs: <strong>this room</strong> for chat, members &amp; sync — and the
+      <strong>site tab</strong> for the actual video.
+    </p>
   {:else}
     <button class="reopen" onclick={onOpen}>
       <ExternalLink size={14} /> Reopen tab
@@ -81,6 +101,47 @@
   .line {
     color: var(--muted, #9a9aa6);
     max-width: 30rem;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: #ffffff14;
+    color: #cfcfd6;
+  }
+  .chip .led {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: #9a9aa6;
+  }
+  .chip.ok {
+    color: #7ee787;
+  }
+  .chip.ok .led {
+    background: #7ee787;
+  }
+  .chip.wait .led {
+    background: #f5a623;
+  }
+  .chip.bad {
+    color: #ff8b95;
+  }
+  .chip.bad .led {
+    background: #ff5d6c;
+  }
+  .hint {
+    color: var(--muted, #9a9aa6);
+    max-width: 26rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+  }
+  .hint strong {
+    color: #cfcfd6;
   }
   .open,
   .reopen {

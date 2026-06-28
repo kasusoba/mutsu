@@ -45,7 +45,7 @@ Build with the server URL baked in, then deploy the static output. `_redirects`
 
 ```bash
 pnpm deploy:web                              # build (host baked in) + wrangler pages deploy
-#   → https://sixseven.pages.dev
+#   → https://mutsu.onesal.me (custom domain on the Pages project `sixseven`)
 ```
 
 `deploy:web` defaults `VITE_PARTYKIT_HOST` to `sync.onesal.me` (the sync server
@@ -94,7 +94,7 @@ HLS sources need no extension; embed sources need it installed on each device.**
 
 ## 4. Share
 
-Send friends `https://sixseven.pages.dev/r/<room>#k=<secret>`. The secret lives
+Send friends `https://mutsu.onesal.me/r/<room>#k=<secret>`. The secret lives
 in the URL fragment, so it's never sent to any server. First join establishes
 the room (trust-on-first-use); later joins must match the secret unless the room
 is opened.

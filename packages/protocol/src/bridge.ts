@@ -150,6 +150,16 @@ export interface WidgetEventMessage {
   self: boolean;
 }
 
+/** Hub → satellite (§11): tells the in-tab widget whether THIS viewer may change
+ *  the room source (control-mode gated) and the room's current source URL, so the
+ *  widget can offer "Play this page for everyone" only when you're on a different
+ *  page AND allowed to push it. Pushed on change. */
+export interface WidgetControlMessage {
+  kind: "widgetControl";
+  canControl: boolean;
+  roomSrc: string | null;
+}
+
 /** Member-gated proxy ops the in-tab widget can ask the hub to run on its behalf
  *  (it has no socket): GIPHY + subtitle search/download (§11/§13/§14). */
 export type WidgetProxyOp = "gif.search" | "subs.search" | "subs.download";
@@ -174,6 +184,7 @@ export type PageToFrameMessage =
   | SelectTrackMessage
   | WidgetMembersMessage
   | WidgetEventMessage
+  | WidgetControlMessage
   | WidgetProxyResultMessage;
 
 // ── frame → page ────────────────────────────────────────────────────────────
@@ -231,6 +242,15 @@ export interface WidgetSayMessage {
   text: string;
 }
 
+/** Satellite → hub (§11): the user pressed "Play this page for everyone" in the
+ *  in-tab widget — they navigated the site to a new title and want the whole room
+ *  to follow. The hub re-broadcasts it as a `setSource` (control-mode permitting),
+ *  and every other viewer's satellite tab navigates to `url`. */
+export interface SiteNavigateMessage {
+  kind: "siteNavigate";
+  url: string;
+}
+
 /** Satellite → hub (§11): run a member-gated proxy op (the widget has no socket).
  *  The hub runs it on the room socket and replies with `widgetProxyResult`. */
 export interface WidgetProxyMessage {
@@ -248,6 +268,7 @@ export type FrameToPageMessage =
   | EndedMessage
   | TracksMessage
   | WidgetSayMessage
+  | SiteNavigateMessage
   | WidgetProxyMessage;
 
 // ── envelope + helpers ──────────────────────────────────────────────────────

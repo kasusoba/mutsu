@@ -53,6 +53,9 @@ export interface BridgeCallbacks {
   onTracks: ((tracks: TrackInfo[]) => void) | null;
   /** The site widget sent a chat/reaction (§11) — the hub relays it as a `say`. */
   onSay: ((sayKind: SayKind, text: string) => void) | null;
+  /** The site widget pressed "Play this page for everyone" (§11) — the hub
+   *  re-broadcasts it as a `setSource` (control-mode permitting). */
+  onSiteNavigate: ((url: string) => void) | null;
   /** The site widget asked the hub to run a member-gated proxy op (§11). */
   onProxy: ((reqId: number, op: WidgetProxyOp, payload: Record<string, unknown>) => void) | null;
 }
@@ -94,6 +97,9 @@ function dispatchFrameMessage(msg: FrameToPageMessage, cb: BridgeCallbacks): voi
       break;
     case "widgetSay":
       cb.onSay?.(msg.sayKind, msg.text);
+      break;
+    case "siteNavigate":
+      cb.onSiteNavigate?.(msg.url);
       break;
     case "widgetProxy":
       cb.onProxy?.(msg.reqId, msg.op, msg.payload);
@@ -217,6 +223,7 @@ export class CrossTabBridge {
     onEnded: null,
     onTracks: null,
     onSay: null,
+    onSiteNavigate: null,
     onProxy: null,
   };
   /** Lifecycle of the satellite tab (open / closed / not-yet-opened). */
@@ -247,6 +254,15 @@ export class CrossTabBridge {
     this.post({ kind: "registerHub", room: this.room });
   }
 
+  /** The room switched AWAY from a `site` source — tear the satellite tab down
+   *  (the background stands it down, removing its in-tab widget) and reset so a
+   *  later switch back to `site` re-registers the hub cleanly. */
+  deactivate(): void {
+    if (!this.activated) return;
+    this.activated = false;
+    this.post({ kind: "unpair", room: this.room });
+  }
+
   apply(sync: SyncMessage, gate: GateMessage, solo: boolean): void {
     this.down(buildApply(sync, gate, solo));
   }
@@ -269,6 +285,19 @@ export class CrossTabBridge {
   /** User gesture: get the source playing in its own tab and pair it. */
   openSatellite(url: string): void {
     this.post({ kind: "openSatellite", room: this.room, url });
+  }
+  /** Auto-pair: adopt a tab already open on `url` (no new tab, no focus steal). */
+  adoptSatellite(url: string): void {
+    this.post({ kind: "adoptSatellite", room: this.room, url });
+  }
+  /** Navigate this hub's paired satellite tab to a new source (follow the room). */
+  navigateSatellite(url: string): void {
+    this.post({ kind: "navigateSatellite", room: this.room, url });
+  }
+  /** Tell the in-tab widget whether this viewer can change the source + the room's
+   *  current source URL (so it can offer "Play this page for everyone"). */
+  widgetControl(canControl: boolean, roomSrc: string | null): void {
+    this.down({ kind: "widgetControl", canControl, roomSrc });
   }
 
   /** Push the room's members down to the in-site-tab widget (§11). */
@@ -311,6 +340,7 @@ export class RoomBridge implements BridgeCallbacks {
   onEnded: (() => void) | null = null;
   onTracks: ((tracks: TrackInfo[]) => void) | null = null;
   onSay: ((sayKind: SayKind, text: string) => void) | null = null;
+  onSiteNavigate: ((url: string) => void) | null = null;
   onProxy: ((reqId: number, op: WidgetProxyOp, payload: Record<string, unknown>) => void) | null =
     null;
   /** Satellite tab lifecycle (only meaningful for `site`). */
@@ -331,6 +361,7 @@ export class RoomBridge implements BridgeCallbacks {
       onEnded: () => this.onEnded?.(),
       onTracks: (t) => this.onTracks?.(t),
       onSay: (k, t) => this.onSay?.(k, t),
+      onSiteNavigate: (u) => this.onSiteNavigate?.(u),
       onProxy: (id, op, p) => this.onProxy?.(id, op, p),
     };
     this.page.onReady = fwd.onReady;
@@ -343,11 +374,14 @@ export class RoomBridge implements BridgeCallbacks {
     this.cross.onSatelliteState = (s) => this.onSatelliteState?.(s);
   }
 
-  /** Tell the bridge which transport is live; activates the hub on `site`. */
+  /** Tell the bridge which transport is live; activates the hub on `site`, and
+   *  tears the satellite down when switching away from `site`. */
   setKind(kind: SourceKind): void {
     if (kind === this.kind) return;
+    const was = this.kind;
     this.kind = kind;
     if (kind === "site") this.cross.activate();
+    else if (was === "site") this.cross.deactivate();
   }
 
   private active(): PageBridge | CrossTabBridge {
@@ -380,6 +414,18 @@ export class RoomBridge implements BridgeCallbacks {
   /** Site only — open/pair the satellite tab. */
   openSatellite(url: string): void {
     this.cross.openSatellite(url);
+  }
+  /** Site only — adopt a tab already open on `url` (auto-pair, no new tab). */
+  adoptSatellite(url: string): void {
+    if (this.kind === "site") this.cross.adoptSatellite(url);
+  }
+  /** Site only — navigate the paired satellite tab to follow a new source. */
+  navigateSatellite(url: string): void {
+    if (this.kind === "site") this.cross.navigateSatellite(url);
+  }
+  /** Site only — push control-ability + current source to the in-tab widget. */
+  widgetControl(canControl: boolean, roomSrc: string | null): void {
+    if (this.kind === "site") this.cross.widgetControl(canControl, roomSrc);
   }
   /** Site only — push room members to the in-tab widget (no-op for other kinds). */
   pushMembers(members: Member[], self: MemberId | null): void {

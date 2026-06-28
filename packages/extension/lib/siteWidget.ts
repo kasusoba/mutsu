@@ -59,8 +59,12 @@ export interface SiteWidgetOpts {
   onChat: (text: string) => void;
   onReact: (emoji: string) => void;
   onGif: (url: string) => void;
-  /** Focus the paired hub tab ("go to room"). */
+  /** Focus the paired hub tab ("go to room") — fired by tapping the room name. */
   onGoToRoom: () => void;
+  /** Hide the whole widget (the ✕) — reopened from the extension popup. */
+  onClose: () => void;
+  /** "Play this page for everyone": make the room follow to the page you're on. */
+  onPlayPage: () => void;
   gifSearch: (q: string) => Promise<GifHit[]>;
   subs: {
     loadFile: (f: File) => Promise<void>;
@@ -155,6 +159,7 @@ export class SiteWidget {
       window.addEventListener(ev, this.shield, true);
     }
     this.wireHeader();
+    this.wirePlayPage();
     this.wireChat();
     this.wireTabs();
     this.wireGif();
@@ -190,16 +195,34 @@ export class SiteWidget {
     this.style = style;
     this.renderStyle();
   }
-  /** Minimize ↔ expand (panel vs floating bubble) — the in-page header tap. */
+  /** Show/hide "Play this page for everyone" — on when you're on a different page
+   *  than the room source and you're allowed to change it. */
+  setCanPlayPage(show: boolean): void {
+    this.q(".playpage").hidden = !show;
+  }
+  /** Minimize ↔ expand (panel vs floating bubble) — the header minimize button. */
   setHidden(hidden: boolean): void {
     this.q(".panel").hidden = hidden;
     this.q(".bubble").hidden = !hidden;
   }
-  /** Fully remove the widget from the page (bubble included) — the popup's "Hide
-   *  widget". Showing again brings back the full panel. */
+  /** Hide/show the whole widget — both the in-widget ✕ and the popup's "Hide
+   *  widget" route here (via the controller). Reopen from the extension popup. */
   setGone(gone: boolean): void {
     this.host.style.display = gone ? "none" : "";
-    if (!gone) this.setHidden(false);
+    if (!gone) this.setHidden(false); // popup re-show → bring back the panel
+  }
+  /** A brief, self-dismissing hint after ✕ so users know how to bring it back.
+   *  Lives OUTSIDE the host (which we're hiding), with inline styles so the site's
+   *  CSS can't restyle it. */
+  private showClosedHint(): void {
+    const t = document.createElement("div");
+    t.textContent = "Widget hidden — reopen it from the extension toolbar icon.";
+    t.style.cssText =
+      "position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2147483647;" +
+      "background:#171922f2;color:#e7e9ef;font:13px/1.4 system-ui,sans-serif;padding:9px 14px;" +
+      "border:1px solid #2a2e3d;border-radius:8px;box-shadow:0 8px 30px #0009;max-width:90vw;";
+    document.documentElement.append(t);
+    setTimeout(() => t.remove(), 4500);
   }
   destroy(): void {
     for (const ev of ["keydown", "keyup", "keypress"] as const) {
@@ -208,27 +231,45 @@ export class SiteWidget {
     this.host.remove();
   }
 
-  // ── header: tap = minimize, drag = move (+ edge-magnet, opens toward center) ──
+  // ── header: room-name link + minimize/close; drag = move (edge-magnet) ──
 
   private wireHeader(): void {
     const icon = this.q<HTMLImageElement>(".bubble img");
     icon.src = browser.runtime.getURL("/icon/48.png");
-    const room = this.q(".room");
-    room.textContent = this.opts.room;
-    room.title = `room: ${this.opts.room}`;
-    const goto = this.q<HTMLButtonElement>(".goto");
-    goto.title = `Go to room tab (${this.opts.room})`;
-    // Don't let the go-to button start a drag / trigger the tap-to-minimize.
-    goto.addEventListener("pointerdown", (e) => e.stopPropagation());
-    goto.addEventListener("click", (e) => {
+    this.q(".rn-text").textContent = this.opts.room;
+    const rn = this.q<HTMLButtonElement>(".roomname");
+    rn.title = `Go to the room tab (${this.opts.room})`;
+    // The room name is a narrow link, NOT a drag handle: stop its pointerdown so
+    // the .hd pointer-capture can't swallow the click (that's why it "did
+    // nothing"). Drag the widget by the rest of the header.
+    rn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    rn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.opts.onGoToRoom();
     });
-    this.initDrag(this.q(".hd"), true);
-    this.initDrag(this.q(".bubble"), false);
+    const min = this.q<HTMLButtonElement>(".min");
+    min.addEventListener("pointerdown", (e) => e.stopPropagation());
+    min.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.setHidden(true); // minimize to the floating bubble
+    });
+    const close = this.q<HTMLButtonElement>(".close");
+    // The ✕ must not start a drag; click hides the widget (popup re-shows it).
+    close.addEventListener("pointerdown", (e) => e.stopPropagation());
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showClosedHint();
+      this.opts.onClose();
+    });
+    this.initDrag(this.q(".hd"));
+    this.initDrag(this.q(".bubble"), () => this.setHidden(false)); // tap bubble → expand
   }
 
-  private initDrag(handle: HTMLElement, tapMinimizes: boolean): void {
+  private wirePlayPage(): void {
+    this.q<HTMLButtonElement>(".playpage").addEventListener("click", () => this.opts.onPlayPage());
+  }
+
+  private initDrag(handle: HTMLElement, onTap?: () => void): void {
     handle.addEventListener("pointerdown", (e) => {
       this.dragging = true;
       this.moved = false;
@@ -261,8 +302,7 @@ export class SiteWidget {
         /* not captured */
       }
       if (this.moved) this.snap();
-      else if (tapMinimizes) this.setHidden(true);
-      else if (!tapMinimizes) this.setHidden(false); // tapping the bubble re-opens
+      else onTap?.();
     };
     handle.addEventListener("pointerup", end);
     handle.addEventListener("pointercancel", end);
@@ -601,12 +641,20 @@ export class SiteWidget {
         .hd { display: flex; align-items: center; gap: 6px; padding: 8px 10px; cursor: grab;
           background: #1f2230; border-bottom: 1px solid #2a2e3d; user-select: none; touch-action: none; }
         .hd:active { cursor: grabbing; }
-        .brand { font-weight: 600; letter-spacing: .3px; flex: none; }
-        .room { font-size: 11px; color: #9aa0b4; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .goto { margin-left: auto; flex: none; border: 0; background: #ffffff14; color: #cfcfd6; border-radius: 6px;
-          padding: 2px 7px; cursor: pointer; font-size: 13px; line-height: 1.3; }
-        .goto:hover { background: #ffffff28; color: #fff; }
+        .roomname { display: inline-flex; align-items: center; gap: 4px; max-width: 70%; min-width: 0; border: 0;
+          background: none; color: #e7e9ef; font: inherit; font-weight: 600; cursor: pointer; padding: 3px 2px;
+          text-align: left; }
+        .roomname .rn-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .roomname .rn-arrow { flex: none; color: #9aa0b4; font-size: 11px; }
+        .roomname:hover .rn-text { text-decoration: underline; }
+        .min, .close { flex: none; border: 0; background: #ffffff14; color: #cfcfd6; border-radius: 6px;
+          padding: 3px 9px; cursor: pointer; font-size: 13px; line-height: 1.3; }
+        .min { margin-left: auto; }
+        .min:hover, .close:hover { background: #ffffff28; color: #fff; }
         .members { display: flex; flex-wrap: wrap; gap: 4px 8px; padding: 7px 10px; border-bottom: 1px solid #2a2e3d; }
+        .playpage { display: block; width: calc(100% - 20px); margin: 8px 10px; padding: 7px 10px; border: 0;
+          border-radius: 6px; background: #6c7cff; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+        .playpage:hover { background: #5563f5; }
         .m { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
         .dot { width: 7px; height: 7px; border-radius: 50%; background: #9aa0b4; }
         .dot.ready { background: #41d18a; } .dot.stalled { background: #f5a623; } .dot.failed { background: #ff5d6c; }
@@ -669,8 +717,9 @@ export class SiteWidget {
         .bubble img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
       </style>
       <div class="panel">
-        <div class="hd"><span class="brand">sixseven</span><span class="room"></span><button class="goto" title="Go to room tab">↗</button></div>
+        <div class="hd"><button class="roomname"><span class="rn-text"></span><span class="rn-arrow">↗</span></button><button class="min" title="Minimize" aria-label="Minimize">–</button><button class="close" title="Hide widget" aria-label="Hide widget">✕</button></div>
         <div class="members"></div>
+        <button class="playpage" hidden>▶ Play this page for everyone</button>
         <div class="tabs">
           <button data-tab="chat">Chat</button><button data-tab="gif">GIF</button><button data-tab="subs">Subs</button>
         </div>
@@ -702,6 +751,6 @@ export class SiteWidget {
           </div>
         </div>
       </div>
-      <button class="bubble" hidden><img alt="sixseven" /></button>`;
+      <button class="bubble" hidden><img alt="" /></button>`;
   }
 }

@@ -110,6 +110,8 @@ export default defineContentScript({
         if (
           msg.kind === "registerHub" ||
           msg.kind === "openSatellite" ||
+          msg.kind === "adoptSatellite" ||
+          msg.kind === "navigateSatellite" ||
           msg.kind === "unpair" ||
           (msg.kind === "relay" && msg.dir === "down")
         ) {

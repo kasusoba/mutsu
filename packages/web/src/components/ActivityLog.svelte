@@ -17,11 +17,15 @@
     return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  /** Short, human label for a source URL (its host) for the activity log. */
+  /** Short, human label for a source URL for the activity log: host + a trimmed
+   *  path so two titles on the same site (e.g. netflix.com/81…) read differently. */
   function sourceLabel(url: string | undefined): string {
     if (!url) return "a new source";
     try {
-      return new URL(url).host || url;
+      const u = new URL(url);
+      const path = u.pathname.replace(/\/$/, "");
+      const label = `${u.host}${path}`;
+      return label.length > 48 ? `${label.slice(0, 47)}…` : label;
     } catch {
       return url.slice(0, 40);
     }

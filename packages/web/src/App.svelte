@@ -4,6 +4,7 @@
     Captions,
     Crown,
     Link2,
+    MonitorPlay,
     PanelRightClose,
     PanelRightOpen,
     Share2,
@@ -76,7 +77,23 @@
   // The page owns the failed-timeout: a content-script frame only reports once it
   // has a <video>, so if none appears within the grace we mark this member failed.
   let failTimer: ReturnType<typeof setTimeout> | null = null;
+  // Fast "won't embed" detection: a refused iframe (X-Frame-Options) still fires
+  // `onload`, but NO content script ever loads inside it, so the bridge's `ready`
+  // never comes back. If it doesn't within this grace, the page didn't embed —
+  // surface the "watch in your own tab" banner immediately instead of waiting the
+  // full FAIL_GRACE_MS. Self-corrects: a slow-but-real embed that loads later
+  // fires `ready`/`hooked`, which clears the banner.
+  let readyTimer: ReturnType<typeof setTimeout> | null = null;
   const FAIL_GRACE_MS = 15_000;
+  const EMBED_NOREADY_MS = 6_000;
+  // Drives the embed-failed banner directly (no server round-trip / no dependence
+  // on `room.me` being populated) so it shows reliably and right away.
+  let embedFailed = $state(false);
+  // Whether the embed has loaded a real, scriptable page yet (a content script
+  // said `ready`). Until then we cover the iframe with our own "Loading…" overlay
+  // so the user never stares at the browser's raw "refused to connect" page
+  // wondering what's happening. Cleared on src change; set in noteEmbedReady().
+  let embedReady = $state(false);
 
   function report(state: MemberStatus) {
     if (state === lastStatus) return;
@@ -88,12 +105,37 @@
       clearTimeout(failTimer);
       failTimer = null;
     }
+    if (readyTimer) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+  }
+  // The embed loaded a real, scriptable page (a content script said `ready`) — so
+  // it isn't refused. Stop the fast no-embed timer and clear a premature banner;
+  // the slower FAIL_GRACE_MS still governs "loaded but never showed a video".
+  function noteEmbedReady() {
+    if (readyTimer) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+    embedReady = true;
+    embedFailed = false;
+  }
+  // The embed couldn't be hooked (refused, or no <video> in the grace) → fail this
+  // member (so others don't wait on us) and show the banner.
+  function failEmbed() {
+    embedFailed = true;
+    report("failed");
   }
 
   // Shared by both player paths (iframe bridge + direct <video>): a readiness
   // report drives the buffer gate and the scrubber position.
   function onStatusReport(state: MemberStatus, currentTime: number, duration: number) {
-    if (state === "ready" || state === "stalled") clearFailTimer();
+    if (state === "ready" || state === "stalled") {
+      clearFailTimer();
+      embedReady = true;
+      embedFailed = false;
+    }
     playerStatus = state;
     report(state);
     pos = { t: currentTime, dur: duration, at: performance.now() };
@@ -106,6 +148,24 @@
     const src = room?.sync?.src;
     if (src) bridge?.openSatellite(src);
   }
+  // Pain-1 fallback: an embed that won't load (X-Frame-Options) → replay the same
+  // URL as a `site` source so it plays in the viewer's own tab instead (§11).
+  function watchInOwnTab() {
+    const src = room?.sync?.src;
+    if (src && room?.canControl) room.setSource(src, "site");
+  }
+  function host(u: string | null | undefined): string {
+    if (!u) return "the source";
+    try {
+      return new URL(u).host;
+    } catch {
+      return u;
+    }
+  }
+  // Track the last source we ourselves pushed via "Play this page for everyone"
+  // (§11) so we can tell the setter ("now playing for the room") from a follower
+  // ("following the room to a new page") when the source changes.
+  let siteSetByMe = $state<string | null>(null);
   // Playlist auto-advance (§16): when our player ends, ask the server for the
   // next queued item. Gated to controllers; the server dedups via afterId so
   // multiple viewers ending at once don't skip several.
@@ -147,6 +207,8 @@
     b.onHooked = (found) => {
       if (found) {
         clearFailTimer();
+        embedReady = true; // a real <video> hooked → loaded + not refused
+        embedFailed = false;
         s.resend();
         // A frame that just (re)hooked a <video> may have loaded after the last
         // `apply` (we no longer spam apply every second), so pull a freshly
@@ -159,7 +221,10 @@
         }
       }
     };
-    b.onReady = () => s.resend();
+    b.onReady = () => {
+      noteEmbedReady(); // scriptable page loaded → it isn't refused
+      s.resend();
+    };
     b.onLocalControl = onLocalControlReport;
     b.onEnded = onEnded; // embed/site video ended → playlist auto-advance (§16)
     b.onTracks = (tracks) => s.setTracks(tracks); // source's own caption tracks (§13)
@@ -173,12 +238,24 @@
         playerStatus = "loading";
         report("loading");
       } else if (state === "open") {
-        // A freshly-mounted in-tab widget needs the current roster right away.
+        // A freshly-mounted in-tab widget needs the current roster + control state
+        // right away (the change-driven effects won't fire just because it opened).
         b.pushMembers($state.snapshot(r.members), r.self);
+        b.widgetControl(r.canControl, r.sync?.src ?? null);
       }
     };
     // Site source (§11): the in-tab widget's chat/reaction → relay to the room.
     b.onSay = (sayKind, text) => r.say(sayKind, text);
+    // Site source (§11): the in-tab widget's "Play this page for everyone" → make
+    // the room follow (control-mode gated, matching every other setSource).
+    b.onSiteNavigate = (url) => {
+      if (!r.canControl) {
+        flashPicker("Host mode is on — only the host can change the page.", false);
+        return;
+      }
+      siteSetByMe = url;
+      r.setSource(url, "site");
+    };
     // The in-tab widget has no socket, so it asks the hub to run member-gated
     // proxy ops (GIPHY + subtitle search/download) and relays back the result.
     b.onProxy = async (reqId, op, payload) => {
@@ -289,13 +366,56 @@
   // Keep the bridge pointed at the right transport (iframe for embed, cross-tab
   // for site); activating the hub the first time a site source is selected.
   $effect(() => {
-    bridge?.setKind(sourceKind);
+    const k = sourceKind;
+    bridge?.setKind(k);
+    // Leaving a `site` source tears the satellite down — drop the stale lifecycle
+    // so a later switch back starts at "none" and re-runs auto-pair.
+    if (k !== "site") satelliteState = "none";
   });
   // Keep the in-site-tab widget's member roster live (§11) — push on any change.
   // ($state.snapshot: members are proxies, not structured-cloneable for postMessage.)
   $effect(() => {
     if (sourceKind !== "site" || !room || !bridge) return;
     bridge.pushMembers($state.snapshot(room.members), room.self);
+  });
+  // Site (§11): tell the in-tab widget whether THIS viewer may change the source +
+  // the room's current source URL, so it can offer "Play this page for everyone"
+  // only when you're on a different page and allowed to push it (control mode).
+  $effect(() => {
+    if (sourceKind !== "site" || !room || !bridge) return;
+    bridge.widgetControl(room.canControl, room.sync?.src ?? null);
+  });
+  // Site (§11): auto-pair a tab you ALREADY have open on the source — no "Open tab"
+  // click (the popup's "Watch this page" creator, or anyone who left it open). If
+  // none is open it's a no-op; the SiteSatellite "Open <host>" button opens one.
+  let adoptedFor: string | null = null;
+  $effect(() => {
+    if (sourceKind !== "site" || !bridge || satelliteState !== "none") return;
+    const src = room?.sync?.src;
+    if (!src || src === adoptedFor) return;
+    adoptedFor = src;
+    bridge.adoptSatellite(src);
+  });
+  // Site (§11): when the room source changes (someone hit "Play this page"), make
+  // every viewer's paired satellite tab follow. The background skips the setter's
+  // own tab (it's already there). The first source set isn't a "follow".
+  let lastSiteSrc: string | null = null;
+  $effect(() => {
+    if (sourceKind !== "site" || !bridge) return;
+    const src = room?.sync?.src ?? null;
+    if (src === lastSiteSrc) return;
+    const prev = lastSiteSrc;
+    lastSiteSrc = src;
+    if (!src) return;
+    bridge.navigateSatellite(src);
+    if (prev !== null && satelliteState === "open") {
+      flashPicker(
+        src === siteSetByMe
+          ? "Now playing this page for the room."
+          : "Following the room to a new page…",
+        true,
+      );
+    }
   });
   $effect(() => {
     if (!room?.sync || !bridge) return;
@@ -344,13 +464,27 @@
     const first = lastSrc === undefined;
     lastSrc = src;
     clearFailTimer();
+    embedFailed = false; // new source → clear any prior fail/banner
+    embedReady = false; // …and re-cover with the loading overlay until it embeds
     if (!first) subs?.clear();
     if (src) {
       report("loading");
-      // For a `site` source the video lives in another tab the user opens on a
-      // gesture — don't fail it on a timer here; the satellite reports its own
-      // loading→failed grace once that tab is driving.
-      if (room?.sync?.srcKind !== "site") {
+      const kind = room?.sync?.srcKind;
+      if (kind === "embed") {
+        // Two-stage fail for embeds: (a) no content script ever loads in the
+        // iframe → the page refused to embed → fail fast (banner shows in ~6s);
+        // (b) it loaded a page but no <video> appeared in the longer grace.
+        readyTimer = setTimeout(() => {
+          readyTimer = null;
+          failEmbed();
+        }, EMBED_NOREADY_MS);
+        failTimer = setTimeout(() => {
+          failTimer = null;
+          failEmbed();
+        }, FAIL_GRACE_MS);
+      } else if (kind !== "site") {
+        // direct/youtube report via their own player props; just the gate status.
+        // (`site` reports its own grace once the satellite tab is driving.)
         failTimer = setTimeout(() => {
           failTimer = null;
           report("failed");
@@ -631,6 +765,33 @@
           <Embed src={room.sync.src} {bridge} />
         {/if}
 
+        <!-- Embed cover (§4): own the load moment so the user never sees the
+             browser's raw "refused to connect" page bare. Covers the iframe while
+             we check, then flips to the watch-in-your-own-tab CTA if it won't
+             embed. Hidden once a real page loads (embedReady) or if the extension
+             is missing (the install banner speaks instead). -->
+        {#if sourceKind === "embed" && room.sync?.src && !extMissing && (embedFailed || !embedReady)}
+          <div class="embed-cover">
+            {#if embedFailed}
+              <MonitorPlay size={40} />
+              <p class="ec-title">This source won't embed here</p>
+              <p class="ec-sub">Many sites (Netflix, Disney+…) block playing inside another page.</p>
+              {#if room.canControl}
+                <button class="ec-go" onclick={watchInOwnTab}>
+                  <MonitorPlay size={16} /> Watch in your own tab
+                </button>
+                <p class="ec-alt">or try <strong>Direct / HLS</strong> in Source, or Reload.</p>
+              {:else}
+                <p class="ec-alt">Ask the host to switch it to “watch in your own tab”.</p>
+              {/if}
+            {:else}
+              <span class="spinner"></span>
+              <p class="ec-title">Loading {host(room.sync.src)}…</p>
+              <p class="ec-alt">If it doesn’t appear, you’ll be able to watch it in your own tab.</p>
+            {/if}
+          </div>
+        {/if}
+
         {#if showCall && room.self}
           <VideoCall {room} onClose={dismissCall} />
         {/if}
@@ -659,11 +820,6 @@
             ⚠ sixseven extension not detected — {sourceKind === "site" ? "this site" : "embedded"}
             playback can't sync. Install/enable it, then reload. (Direct, YouTube, and HLS sources
             play without the extension.)
-          </div>
-        {:else if sourceKind === "embed" && room.sync?.src && room.me?.status === "failed"}
-          <div class="banner">
-            ⚠ This source didn't load — it may block embedding or be unreachable. Try
-            <strong>Direct / HLS</strong> mode in Source, a different source, or Reload.
           </div>
         {/if}
 
@@ -1074,6 +1230,51 @@
     background: color-mix(in srgb, var(--bad) 38%, #000);
     color: var(--text);
     font-size: 13px;
+  }
+  .embed-cover {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 0.6rem;
+    padding: 2rem;
+    text-align: center;
+    color: #fff;
+    background: radial-gradient(circle at 50% 35%, #1b1b22, #000);
+  }
+  .embed-cover :global(svg) {
+    color: var(--muted);
+  }
+  .ec-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0;
+  }
+  .ec-sub {
+    color: var(--muted);
+    max-width: 30rem;
+    margin: 0;
+  }
+  .ec-go {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.3rem;
+    padding: 0.6rem 1rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .ec-alt {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0;
   }
   aside {
     display: flex;

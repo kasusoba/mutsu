@@ -46,8 +46,9 @@ export interface MediaCandidate {
   type: "video" | "iframe";
   /** The URL we'd hand to `setSource` (resolved, absolute, http(s)). */
   url: string;
-  /** Suggested render kind: framed `embed` page vs a `direct` media/stream URL. */
-  kind: "embed" | "direct";
+  /** Suggested render kind: framed `embed` page, a `direct` media/stream URL, or
+   *  `site` (the page plays its own blob/MSE video in its own tab — §11). */
+  kind: "embed" | "direct" | "site";
   /** The document URL of the frame it was found in (for context). */
   pageUrl: string;
   pageTitle: string;
@@ -158,11 +159,14 @@ export function collectFrameCandidates(): MediaCandidate[] {
         height: h,
       });
     } else {
-      // blob:/MSE — no addressable URL, so offer the hosting page (embed it).
+      // blob:/MSE — no addressable URL. In the TOP frame that means "this page
+      // plays its own video": offer it as a `site` source (own tab + sync, §11),
+      // which works whether or not the site allows framing. In a NESTED frame the
+      // url is a provider iframe that usually DOES allow framing, so embed it.
       out.push({
         type: "video",
         url: here,
-        kind: "embed",
+        kind: window.top === window.self ? "site" : "embed",
         pageUrl: here,
         pageTitle: document.title,
         direct: false,

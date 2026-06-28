@@ -24,6 +24,7 @@ import { DEFAULT_SUBTITLE_STYLE, unwrap, wrap } from "@sixseven/protocol/bridge"
 import { parseSubtitles } from "@sixseven/protocol/subtitles";
 import type { RelayUpMessage, XtabMessage } from "@sixseven/protocol/xtab";
 import { browser } from "wxt/browser";
+import { sameSource } from "./config";
 import { ReactionLayer } from "./reactionLayer";
 import { type GifHit, SiteWidget, type SubHit } from "./siteWidget";
 import { SubtitleLayer } from "./subtitleLayer";
@@ -54,6 +55,14 @@ export class SatelliteController {
   private failTimer: ReturnType<typeof setTimeout> | null = null;
   private lastApply: Parameters<VideoHook["apply"]>[0] | null = null;
   private destroyed = false;
+  // "Play this page for everyone" (§11): the room's current source + whether this
+  // viewer may change it. The button shows only when this page differs from the
+  // room source AND we're allowed to push it (control mode). `lastHref` lets us
+  // notice in-site SPA navigation (no reload) so the button appears/updates.
+  private roomSrc: string | null = null;
+  private canControl = false;
+  private lastHref = location.href;
+  private navTimer: ReturnType<typeof setInterval> | null = null;
   // Widget visibility + member count, surfaced to the popup so it can show/hide
   // the in-tab widget (some viewers don't want it overlaying the video).
   private widgetHidden = false;
@@ -66,6 +75,8 @@ export class SatelliteController {
       onReact: (emoji) => this.sendUp({ kind: "widgetSay", sayKind: "reaction", text: emoji }),
       onGif: (url) => this.sendUp({ kind: "widgetSay", sayKind: "gif", text: url }),
       onGoToRoom: () => this.post({ kind: "focusHub" }),
+      onClose: () => this.setWidgetHidden(true),
+      onPlayPage: () => this.playThisPage(),
       gifSearch: async (q) => {
         const r = (await this.proxy("gif.search", { query: q })) as { results: GifHit[] };
         return r.results ?? [];
@@ -125,13 +136,44 @@ export class SatelliteController {
 
     this.post({ kind: "registerSatellite", room: this.room, src: location.href });
     this.armFailTimer();
+
+    // Notice in-site navigation (SPA route change → no reload) so "Play this page"
+    // tracks the page you're actually on. A full reload reboots us instead.
+    window.addEventListener("popstate", this.onNav);
+    window.addEventListener("hashchange", this.onNav);
+    this.navTimer = setInterval(this.onNav, 1000);
+  }
+
+  // The current page differs from what the room navigated to (a new title).
+  private onNav = (): void => {
+    if (location.href === this.lastHref) return;
+    this.lastHref = location.href;
+    // Keep the background's record of our URL fresh so the hub's follow-navigate
+    // won't reload the page we just moved to ourselves, and the hub display tracks.
+    this.post({ kind: "registerSatellite", room: this.room, src: location.href });
+    this.refreshPlayPage();
+  };
+
+  // Show "Play this page for everyone" only when we're on a different page than the
+  // room's current source AND we're allowed to change it (control mode).
+  private refreshPlayPage(): void {
+    const differs = !this.roomSrc || !sameSource(location.href, this.roomSrc);
+    this.widget.setCanPlayPage(this.canControl && differs);
+  }
+
+  // User pressed "Play this page for everyone": tell the hub to setSource here.
+  private playThisPage(): void {
+    const url = location.href;
+    // Register our URL first so the hub's resulting follow-navigate skips us.
+    this.post({ kind: "registerSatellite", room: this.room, src: url });
+    this.sendUp({ kind: "siteNavigate", url });
   }
 
   // ── popup control (show/hide the in-tab widget) ──────────────────────────────
 
   setWidgetHidden(hidden: boolean): void {
     this.widgetHidden = hidden;
-    this.widget.setGone(hidden); // fully remove (bubble included), not just minimize
+    this.widget.setGone(hidden); // fully hide the widget; the popup re-shows it
   }
   popupState(): { active: boolean; hidden: boolean; members: number } {
     return { active: true, hidden: this.widgetHidden, members: this.memberCount };
@@ -141,6 +183,9 @@ export class SatelliteController {
     if (this.destroyed) return;
     this.destroyed = true;
     this.clearFailTimer();
+    if (this.navTimer) clearInterval(this.navTimer);
+    window.removeEventListener("popstate", this.onNav);
+    window.removeEventListener("hashchange", this.onNav);
     for (const p of this.pending.values()) p.reject(new Error("closed"));
     this.pending.clear();
     window.removeEventListener("message", this.onFrameMessage);
@@ -165,6 +210,12 @@ export class SatelliteController {
           force: msg.force,
           solo: msg.solo,
         };
+        // The room's current source rides on `apply` — keep it for the "Play this
+        // page" comparison (widgetControl also carries it, but apply is steadier).
+        if (msg.src != null) {
+          this.roomSrc = msg.src;
+          this.refreshPlayPage();
+        }
         this.hook.apply(this.lastApply);
         this.broadcastDown(msg);
         break;
@@ -192,6 +243,11 @@ export class SatelliteController {
       case "widgetMembers":
         this.memberCount = msg.members.length;
         this.widget.setMembers(msg.members, msg.self);
+        break;
+      case "widgetControl":
+        this.canControl = msg.canControl;
+        this.roomSrc = msg.roomSrc;
+        this.refreshPlayPage();
         break;
       case "widgetEvent":
         if (msg.sayKind === "chat") {

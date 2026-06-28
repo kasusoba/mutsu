@@ -533,19 +533,37 @@ WEB HUB TAB (App.svelte)                         SITE TAB (e.g. netflix.com)
 **Transport.** It reuses the **exact bridge protocol** (`@sixseven/protocol/bridge`,
 `apply`/`status`/`setSubtitles`/`selectTrack`/`tracks`/`localControl`/`ended`) — only the carrier
 differs. The xtab envelope + routing live in `@sixseven/protocol/xtab` (`registerHub`,
-`openSatellite`, `relay {dir}`, `assignSatellite {active}`, `registerSatellite`, `satelliteState`,
-`satelliteHello`, `unpair`). On the web, `RoomBridge` (`web/src/lib/bridge.ts`) is one facade over
+`openSatellite`, `adoptSatellite`, `navigateSatellite`, `relay {dir}`, `assignSatellite {active}`,
+`registerSatellite`, `satelliteState`, `satelliteHello`, `unpair`). On the web, `RoomBridge`
+(`web/src/lib/bridge.ts`) is one facade over
 two transports — `PageBridge` (iframe, for `embed`) and `CrossTabBridge` (xtab, for `site`) — chosen
 by the current `srcKind`, so `App.svelte` and `SubtitleController` are transport-agnostic.
 
 **Flow (web invite URLs — same capability link as any room):**
+- **Discover** (an embed that won't load): an `embed` source that fails (X-Frame-Options) shows a
+  banner whose primary action **"Watch in your own tab"** re-sets the *same URL* as a `site` source
+  (`setSource(src,"site")`, control-gated). This is the on-ramp from the dead-end to site mode —
+  the user never has to know "site" exists up front.
 - **Start** (popup → "Watch this page together"): opens a fresh web room with
   `?src=<thisTabUrl>&kind=site`. The room page applies it as a `site` source and shows the
-  **SiteSatellite** panel ("Playing in your own tab — Open <host>").
+  **SiteSatellite** panel (connection chip + a two-tab explainer: *this room* for chat/sync, the
+  *site tab* for the video).
+- **Auto-pair**: when a `site` source loads and the viewer **already has that page open** (the
+  popup-start creator, or anyone who left it open), the hub sends `adoptSatellite` and the
+  background pairs that tab **without opening a new one or stealing focus** — no "Open tab" click.
+  No matching tab ⇒ no-op, and the explicit gesture below is the fallback.
 - **Open/join**: the **"Open <host>"** button (a user gesture — also satisfies autoplay/sound
   policy) sends `openSatellite`; the background **reuses an already-open tab on the same source**
   (the creator's current tab) or opens a new one (a joiner), assigns it, and the site tab's
   content script becomes the satellite. Joiners reach all this by opening the room's invite URL.
+- **Change the title (follow-me)**: browsing within the site never auto-propagates. Instead the
+  in-tab widget shows **"Play this page for everyone"** when you're on a different page than the
+  room source *and* you may control it (the hub pushes `widgetControl {canControl,roomSrc}` down;
+  the satellite watches its own `location` incl. SPA navigation). Pressing it sends `siteNavigate`
+  up; the hub re-broadcasts a `setSource` (control-gated, logged in Activity), and every other
+  viewer's satellite tab is driven to the new URL via `navigateSatellite` (the setter's own tab is
+  skipped). The queue is unaffected — auto-advance still rides the real `<video>` `ended` event,
+  which navigation doesn't fire.
 - **Lifecycle**: if the site tab closes the hub shows "tab closed — reopen"; if the hub closes the
   background stands the satellite down. A reloaded site tab re-pairs via `satelliteHello`.
 

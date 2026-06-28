@@ -17,7 +17,7 @@
 const ENV = import.meta.env as Record<string, string | undefined>;
 export const WEB_APP_URL =
   ENV.WXT_WEB_APP_URL ||
-  (import.meta.env.DEV ? "http://localhost:5173" : "https://sixseven-3kc.pages.dev");
+  (import.meta.env.DEV ? "http://localhost:5173" : "https://mutsu.onesal.me");
 
 // popup ↔ site-tab satellite (§11): the popup queries whether this tab is in a
 // party and shows/hides the in-tab widget (some viewers don't want it overlaying
