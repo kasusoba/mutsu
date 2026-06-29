@@ -5,7 +5,7 @@
  * room page — SPEC §4 embeds a *source*, not ourselves).
  */
 
-import type { SourceKind } from "@sixseven/protocol";
+import type { SourceKind } from "@mutsu/protocol";
 
 export interface SourceResult {
   url?: string;

@@ -1,4 +1,4 @@
-# sixseven — Product Requirements
+# mutsu — Product Requirements
 
 ## 1. Problem
 
@@ -18,7 +18,7 @@ kinds of sources.
 ## 2. Target users
 
 - **Primary:** the host (you) + a small group of friends (≈2–10 people) already together in
-  a **Discord voice channel** for audio/chat. sixseven only handles **video sync**, not
+  a **Discord voice channel** for audio/chat. mutsu only handles **video sync**, not
   voice or text chat — Discord covers that.
 - **Technical comfort:** host is comfortable self-hosting (running a small server, loading an
   unpacked extension). Friends can install a browser extension and click a link.
@@ -93,7 +93,7 @@ Everyone gathers on a free hosted **room page**; the shared source is **embedded
 
 ## 8. Primary user flow (MVP)
 
-1. Host opens sixseven, creates room `movie-night` → gets a share link.
+1. Host opens mutsu, creates room `movie-night` → gets a share link.
 2. Host pastes a source URL (or, Phase 3, opens a page and clicks "sync this video").
 3. Friends open the link (and have the extension installed for Phase 3 sources).
 4. Host hits play → everyone plays. Someone seeks → everyone seeks.

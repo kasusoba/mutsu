@@ -1,19 +1,19 @@
 <div align="center">
 
-<img src="public/icon/128.png" alt="sixseven extension icon" width="96" height="96" />
+<img src="public/icon/128.png" alt="mutsu extension icon" width="96" height="96" />
 
-# sixseven browser extension
+# mutsu browser extension
 
 **Keep a watch party's video in sync, on any site.**
 
 </div>
 
-The sixseven extension is the piece that reaches into a video player your browser otherwise
+The mutsu extension is the piece that reaches into a video player your browser otherwise
 can't touch (cross-origin embeds and the sites you're already on) and keeps its playback
 clock lined up with everyone else in your party. It only ever moves a playback position —
 play / pause / seek — never video itself.
 
-Part of [sixseven](../../README.md), a self-hosted watch-party tool.
+Part of [mutsu](../../README.md), a self-hosted watch-party tool.
 
 ---
 
@@ -21,10 +21,10 @@ Part of [sixseven](../../README.md), a self-hosted watch-party tool.
 
 ```bash
 pnpm install
-pnpm --filter @sixseven/extension dev          # Chromium, hot-reload
-pnpm --filter @sixseven/extension dev:firefox  # Firefox
-pnpm --filter @sixseven/extension build        # → .output/chrome-mv3 (load unpacked)
-pnpm --filter @sixseven/extension zip          # packaged zip for store upload
+pnpm --filter @mutsu/extension dev          # Chromium, hot-reload
+pnpm --filter @mutsu/extension dev:firefox  # Firefox
+pnpm --filter @mutsu/extension build        # → .output/chrome-mv3 (load unpacked)
+pnpm --filter @mutsu/extension zip          # packaged zip for store upload
 ```
 
 Load unpacked: `chrome://extensions` → enable Developer mode → **Load unpacked** →
@@ -43,7 +43,7 @@ Everything below is ready to paste into the Chrome Web Store / Firefox AMO listi
 
 ## Short description / summary
 
-> Watch videos in sync with friends. sixseven keeps everyone's play, pause, and seek lined up — on embeds, direct links, YouTube, or any tab.
+> Watch videos in sync with friends. mutsu keeps everyone's play, pause, and seek lined up — on embeds, direct links, YouTube, or any tab.
 
 *(128 characters — fits the Chrome Web Store summary limit. A tighter alternative: "Keep a watch party's video playback in sync with friends, on any site.")*
 
@@ -51,11 +51,11 @@ Everything below is ready to paste into the Chrome Web Store / Firefox AMO listi
 
 > **Watch together, in perfect sync.**
 >
-> sixseven keeps a group's video playback lined up while you hang out — same moment, same
+> mutsu keeps a group's video playback lined up while you hang out — same moment, same
 > pause, same rewind. Everyone plays their own copy of the video in their own browser;
-> sixseven just shares the play / pause / seek so all the screens stay together.
+> mutsu just shares the play / pause / seek so all the screens stay together.
 >
-> **The video never passes through any server.** sixseven only moves the playback position
+> **The video never passes through any server.** mutsu only moves the playback position
 > and the link — that's why it's lightweight and instant.
 >
 > **What it syncs**
@@ -71,13 +71,13 @@ Everything below is ready to paste into the Chrome Web Store / Firefox AMO listi
 > • A shared "up next" queue with auto-advance.
 > • A buffer gate that waits for whoever is still loading.
 >
-> **What sixseven is not:** it does not bypass DRM, rip or rehost streams, or get around a
+> **What mutsu is not:** it does not bypass DRM, rip or rehost streams, or get around a
 > site's access controls. It only syncs playback of sources you can already open yourself.
-> If a video won't load for you on its own, sixseven won't make it.
+> If a video won't load for you on its own, mutsu won't make it.
 
 ## Single-purpose description
 
-> sixseven has one purpose: synchronize video playback (play, pause, and seek position)
+> mutsu has one purpose: synchronize video playback (play, pause, and seek position)
 > between members of a watch party so they can watch the same video at the same time.
 
 ## Permission justifications
@@ -112,7 +112,7 @@ Short version for the store's **`tabs`** justification field:
   sync server to keep the party aligned and label you. No accounts, no emails, no passwords.
 - Pairing state + GIF favorites + nickname are stored **locally** in the browser (`storage`);
   they aren't sent anywhere by the extension.
-- The sync server is the one you (or the party host) run/point to — sixseven does not send
+- The sync server is the one you (or the party host) run/point to — mutsu does not send
   your data to the developer.
 
 ---

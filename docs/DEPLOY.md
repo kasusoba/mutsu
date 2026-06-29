@@ -1,4 +1,4 @@
-# Deploying sixseven
+# Deploying mutsu
 
 Everything here is free-tier. Three pieces: the **sync server** (a Cloudflare
 Durable Object via [PartyServer](https://github.com/cloudflare/partykit/tree/main/packages/partyserver)),
@@ -45,7 +45,7 @@ Build with the server URL baked in, then deploy the static output. `_redirects`
 
 ```bash
 pnpm deploy:web                              # build (host baked in) + wrangler pages deploy
-#   → https://mutsu.onesal.me (custom domain on the Pages project `sixseven`)
+#   → https://mutsu.onesal.me (custom domain on the Pages project `mutsu`)
 ```
 
 `deploy:web` defaults `VITE_PARTYKIT_HOST` to `sync.onesal.me` (the sync server
@@ -69,13 +69,13 @@ Manual equivalent:
 
 ```bash
 VITE_PARTYKIT_HOST=sync.onesal.me \
-  pnpm --filter @sixseven/web build          # → packages/web/dist
+  pnpm --filter @mutsu/web build          # → packages/web/dist
 
 npx wrangler pages deploy packages/web/dist --project-name sixseven --branch main
 ```
 
 Or connect the GitHub repo in the Pages dashboard with:
-- **Build command:** `VITE_PARTYKIT_HOST=sync.onesal.me pnpm --filter @sixseven/web build`
+- **Build command:** `VITE_PARTYKIT_HOST=sync.onesal.me pnpm --filter @mutsu/web build`
 - **Output directory:** `packages/web/dist`
 
 The client auto-uses secure `wss://`/`https://` for any non-local host, so no
@@ -84,12 +84,12 @@ extra config is needed.
 ## 3. Extension (per browser)
 
 ```bash
-pnpm --filter @sixseven/extension build           # → .output/chrome-mv3
-pnpm --filter @sixseven/extension build:firefox   # → .output/firefox-mv2
+pnpm --filter @mutsu/extension build           # → .output/chrome-mv3
+pnpm --filter @mutsu/extension build:firefox   # → .output/firefox-mv2
 ```
 
 Load unpacked (`chrome://extensions` → Developer mode → Load unpacked), or zip
-(`pnpm --filter @sixseven/extension zip`) and publish to the store. **Direct /
+(`pnpm --filter @mutsu/extension zip`) and publish to the store. **Direct /
 HLS sources need no extension; embed sources need it installed on each device.**
 
 ## 4. Share

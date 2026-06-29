@@ -11,7 +11,7 @@
 //   pnpm dev:server         (in one terminal)
 //   pnpm test:sync          (in another)
 
-const HOST = process.env.SIXSEVEN_HOST ?? "127.0.0.1:8787";
+const HOST = process.env.MUTSU_HOST ?? "127.0.0.1:8787";
 const ROOM = `test-${process.pid}`;
 const SECRET = "s3cret";
 const URL = `ws://${HOST}/parties/main/${ROOM}`;
@@ -59,7 +59,7 @@ class Client {
 }
 
 async function main() {
-  console.log(`\nsixseven Phase-1 sync test → ${URL}\n`);
+  console.log(`\nmutsu Phase-1 sync test → ${URL}\n`);
 
   // ── 1. two clients join ──────────────────────────────────────────────────
   console.log("[1] two clients join the same room");

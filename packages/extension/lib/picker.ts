@@ -9,10 +9,10 @@
  *          content script --window.postMessage(pick-source)--> room page
  *
  * The runtime messages here are extension-internal; the page-facing `pick-source`
- * message and `ROOM_ATTR` live in `@sixseven/protocol/picker` (shared with web).
+ * message and `ROOM_ATTR` live in `@mutsu/protocol/picker` (shared with web).
  */
 
-/** popup → content script (any tab): "are you a sixseven room? if so, which?" */
+/** popup → content script (any tab): "are you a mutsu room? if so, which?" */
 export const PICKER_PING = "sixseven:are-you-room" as const;
 /** popup → content script (a room tab): deliver the picked source URL. */
 export const PICKER_DELIVER = "sixseven:deliver-source" as const;
@@ -21,7 +21,7 @@ export interface AreYouRoomMessage {
   type: typeof PICKER_PING;
 }
 export interface AreYouRoomReply {
-  /** The room name if this tab is a sixseven room page, else null. */
+  /** The room name if this tab is a mutsu room page, else null. */
   room: string | null;
 }
 export interface DeliverSourceMessage {

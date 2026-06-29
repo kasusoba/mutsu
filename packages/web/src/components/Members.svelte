@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Crown } from "lucide-svelte";
-  import type { MemberStatus } from "@sixseven/protocol";
+  import type { MemberStatus } from "@mutsu/protocol";
   import type { RoomClient } from "../lib/room.svelte";
 
   interface Props {

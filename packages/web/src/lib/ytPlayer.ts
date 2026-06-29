@@ -15,7 +15,7 @@
  * Content-neutral: it plays a YouTube id the user supplied; no extraction.
  */
 
-import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@sixseven/protocol";
+import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@mutsu/protocol";
 
 // YT can't fine-slew playbackRate like the direct player, so we DON'T correct
 // small drift at all (that backward yank was the jitter) — only snap a genuine

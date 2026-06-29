@@ -1,12 +1,12 @@
 /**
  * In-iframe overlay host (SPEC §12): an empty, `pointer-events: none` layer
  * inside the embed iframe, reserved for future in-iframe UI. We intentionally
- * render NO visible badge — the "synced by sixseven" pill was noise (it showed
+ * render NO visible badge — the "synced by mutsu" pill was noise (it showed
  * on every embed and inside our own party). Sync status lives on the room page.
  * The host follows fullscreen so any future overlay tracks the video (risk 10).
  */
 
-const HOST_ID = "sixseven-overlay";
+const HOST_ID = "mutsu-overlay";
 
 export class Overlay {
   private host: HTMLDivElement;

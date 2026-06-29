@@ -1,5 +1,5 @@
 /**
- * sixseven room backend — one PartyKit Durable Object per room (SPEC §6, §7).
+ * mutsu room backend — one PartyKit Durable Object per room (SPEC §6, §7).
  *
  * Responsibilities (Phase 1):
  *  - hold the authoritative Room state (SPEC §7)
@@ -31,7 +31,7 @@ import {
   type SourceKind,
   encode,
   parseClientMessage,
-} from "@sixseven/protocol";
+} from "@mutsu/protocol";
 import { type Connection, type ConnectionContext, Server, routePartykitRequest } from "partyserver";
 import { searchGifs } from "./gif.ts";
 import { type RtcEnv, iceServers } from "./rtc.ts";
@@ -196,7 +196,7 @@ export class RoomServer extends Server<Env> {
     const cors: Record<string, string> = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, x-sixseven-secret",
+      "Access-Control-Allow-Headers": "Content-Type, x-mutsu-secret",
       "Access-Control-Max-Age": "86400",
     };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -204,7 +204,7 @@ export class RoomServer extends Server<Env> {
 
     // Gate to room members: the room must be initialised and the caller must
     // present the capability secret (or the room is open). No anonymous use.
-    const secret = req.headers.get("x-sixseven-secret");
+    const secret = req.headers.get("x-mutsu-secret");
     const ok = this.s.auth && (this.s.auth.open || this.s.auth.secret === (secret || null));
     if (!ok) return this.json({ error: "unauthorized" }, 401, cors);
 

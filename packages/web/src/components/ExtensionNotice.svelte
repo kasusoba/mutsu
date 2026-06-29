@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Shows whether the sixseven extension is present (the content script tags
+  // Shows whether the mutsu extension is present (the content script tags
   // <html data-sixseven-ext>). Used on the create/join screens so people know
   // up front — embedded sites + own-tab parties need it; direct & YouTube don't.
   import { EXTENSION_URL } from "../lib/links";
@@ -16,10 +16,10 @@
 </script>
 
 {#if installed === true}
-  <p class="ext ok">✓ sixseven extension ready</p>
+  <p class="ext ok">✓ mutsu extension ready</p>
 {:else if installed === false}
   <p class="ext warn">
-    No sixseven extension detected — it's needed to sync embedded sites and own-tab
+    No mutsu extension detected — it's needed to sync embedded sites and own-tab
     parties. <a href={EXTENSION_URL} target="_blank" rel="noreferrer">Get it</a>. Direct video
     &amp; YouTube links work without it.
   </p>

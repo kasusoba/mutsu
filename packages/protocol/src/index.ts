@@ -1,5 +1,5 @@
 /**
- * sixseven sync protocol — shared message types (SPEC §7).
+ * mutsu sync protocol — shared message types (SPEC §7).
  *
  * The single source of truth for the wire contract between the room page,
  * the extension, and the PartyKit DO. Keep it small and JSON. Any new

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Mode } from "@sixseven/protocol";
+  import type { Mode } from "@mutsu/protocol";
   import { Crown, Users } from "lucide-svelte";
   import { untrack } from "svelte";
   import { makeRoomName, slugifyRoom } from "../lib/session";
@@ -27,7 +27,7 @@
 
 <div class="wrap">
   <form onsubmit={submit}>
-    <h1>sixseven</h1>
+    <h1>mutsu</h1>
     <p class="tag">Start a watch party. Everyone plays their own copy — we just keep it in sync.</p>
     <ol class="how">
       <li>Create a room</li>

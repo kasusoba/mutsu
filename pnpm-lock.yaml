@@ -23,7 +23,7 @@ importers:
 
   packages/extension:
     dependencies:
-      '@sixseven/protocol':
+      '@mutsu/protocol':
         specifier: workspace:*
         version: link:../protocol
       partysocket:
@@ -41,7 +41,7 @@ importers:
 
   packages/server:
     dependencies:
-      '@sixseven/protocol':
+      '@mutsu/protocol':
         specifier: workspace:*
         version: link:../protocol
       fflate:
@@ -63,7 +63,7 @@ importers:
 
   packages/web:
     dependencies:
-      '@sixseven/protocol':
+      '@mutsu/protocol':
         specifier: workspace:*
         version: link:../protocol
       hls.js:

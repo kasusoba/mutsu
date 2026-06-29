@@ -1,6 +1,6 @@
 {
-  "name": "@sixseven/extension",
-  "version": "0.2.3",
+  "name": "@mutsu/extension",
+  "version": "0.2.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "typecheck": "wxt prepare && tsc --noEmit"
   },
   "dependencies": {
-    "@sixseven/protocol": "workspace:*",
+    "@mutsu/protocol": "workspace:*",
     "partysocket": "^1.0.3"
   },
   "devDependencies": {

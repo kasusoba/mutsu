@@ -13,7 +13,7 @@
  *  deployed page in production builds and the local Vite dev server under
  *  `wxt dev` (`import.meta.env.DEV`), so local testing "just works" without an
  *  edit. Override with `WXT_WEB_APP_URL` (e.g. a tunnel host or a non-default
- *  port: `WXT_WEB_APP_URL=http://localhost:4000 pnpm --filter @sixseven/extension build`). */
+ *  port: `WXT_WEB_APP_URL=http://localhost:4000 pnpm --filter @mutsu/extension build`). */
 const ENV = import.meta.env as Record<string, string | undefined>;
 export const WEB_APP_URL =
   ENV.WXT_WEB_APP_URL ||

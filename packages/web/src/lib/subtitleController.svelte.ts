@@ -9,7 +9,7 @@ import {
   type SubtitleCue,
   type SubtitleStyle,
   type TrackInfo,
-} from "@sixseven/protocol/bridge";
+} from "@mutsu/protocol/bridge";
 import type { RoomBridge } from "./bridge";
 import type { RoomClient, SubResult } from "./room.svelte";
 import { parseSubtitles } from "./subtitles";

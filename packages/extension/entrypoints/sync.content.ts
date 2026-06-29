@@ -1,5 +1,5 @@
 /**
- * sixseven content script (SPEC §6) — injected into every frame. Embed providers
+ * mutsu content script (SPEC §6) — injected into every frame. Embed providers
  * nest the real <video> several iframes deep, so a flat parent↔child bridge isn't
  * enough. This relays the bridge through the WHOLE frame tree:
  *
@@ -14,10 +14,10 @@
  * failed-timeout. No bytes, no extraction, no header forging.
  */
 
-import type { FrameToPageMessage, PageToFrameMessage } from "@sixseven/protocol/bridge";
-import { unwrap, wrap } from "@sixseven/protocol/bridge";
-import { PICKER_TAG, type PickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
-import { type XtabMessage, unwrapXtab, wrapXtab } from "@sixseven/protocol/xtab";
+import type { FrameToPageMessage, PageToFrameMessage } from "@mutsu/protocol/bridge";
+import { unwrap, wrap } from "@mutsu/protocol/bridge";
+import { PICKER_TAG, type PickSourceMessage, ROOM_ATTR } from "@mutsu/protocol/picker";
+import { type XtabMessage, unwrapXtab, wrapXtab } from "@mutsu/protocol/xtab";
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/sandbox";
 import { MSG_SATELLITE_STATE, MSG_SET_WIDGET_HIDDEN } from "../lib/config";
@@ -174,7 +174,7 @@ export default defineContentScript({
     const subtitles = new SubtitleLayer(() => hook.currentTime());
 
     let engaged = false;
-    // Only activate inside an actual sixseven party: a `hello` from the room page
+    // Only activate inside an actual mutsu party: a `hello` from the room page
     // (relayed down the frame tree) means we're embedded in a room. Without it —
     // just a video on some random page the user is browsing — we stay inert and
     // draw nothing (no badge, no hooking, no reporting).

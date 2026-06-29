@@ -1,4 +1,4 @@
-# sixseven — Consolidated Spec
+# mutsu — Consolidated Spec
 
 > Single source of truth. Folds together PRD, ARCHITECTURE, and ROADMAP into one coherent
 > read. Where this disagrees with older docs, **this wins.**
@@ -10,7 +10,7 @@ the first stress test.
 
 ## 1. What it is (one paragraph)
 
-A self-hosted **watch-party** tool. Friends are together in **Discord voice**; sixseven
+A self-hosted **watch-party** tool. Friends are together in **Discord voice**; mutsu
 keeps their **video playback in sync**. Everyone **gathers on a hosted room page**; the chosen
 source is **embedded as an `<iframe>`** inside that page; a **browser extension** bridges into
 the iframe to align the clock and draw a clean overlay (controls + custom subtitles). The
@@ -282,7 +282,7 @@ effective_play = (intent==='playing') AND (stalled is empty among non-skipped me
 | 15 | Nickname impersonation (no accounts) | Low | Acceptable for trusted group; not solving for MVP |
 
 ## 17. Open questions
-- Project name (currently `sixseven`).
+- Project name (currently `mutsu`).
 
 **Resolved in P3:** online-subtitle **provider + API-key handling** → shared keys as **deploy
 secrets** behind a **member-gated proxy in the DO** (`onRequest`), providers swappable

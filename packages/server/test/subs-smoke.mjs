@@ -4,7 +4,7 @@
 //
 //   node packages/server/test/subs-smoke.mjs "Inception"
 
-const HOST = process.env.SIXSEVEN_HOST ?? "127.0.0.1:8787";
+const HOST = process.env.MUTSU_HOST ?? "127.0.0.1:8787";
 const ROOM = `subs-${process.pid}`;
 const SECRET = "s3cret";
 const QUERY = process.argv[2] ?? "Inception";
@@ -27,7 +27,7 @@ function joinWs() {
 async function proxy(op, payload) {
   const res = await fetch(`http://${HOST}/parties/main/${ROOM}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-sixseven-secret": SECRET },
+    headers: { "Content-Type": "application/json", "x-mutsu-secret": SECRET },
     body: JSON.stringify({ op, ...payload }),
   });
   return { status: res.status, json: await res.json().catch(() => null) };

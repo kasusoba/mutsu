@@ -12,8 +12,8 @@
  * Content-neutral: plays whatever URL it's handed; no extraction/forging (§3).
  */
 
-import type { GateMessage, MemberStatus, SyncMessage } from "@sixseven/protocol";
-import { STATUS_REPORT_MS, type SubtitleCue, type TrackInfo } from "@sixseven/protocol/bridge";
+import type { GateMessage, MemberStatus, SyncMessage } from "@mutsu/protocol";
+import { STATUS_REPORT_MS, type SubtitleCue, type TrackInfo } from "@mutsu/protocol/bridge";
 
 const STALL_DEBOUNCE_MS = 700;
 const SELF_SEEK_QUIET_MS = 1000;

@@ -21,7 +21,7 @@ import type {
   RelayUpMessage,
   SatelliteStateMessage,
   XtabMessage,
-} from "@sixseven/protocol/xtab";
+} from "@mutsu/protocol/xtab";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/sandbox";
 import { sameSource } from "../lib/config";

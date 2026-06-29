@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@sixseven/protocol";
+  import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@mutsu/protocol";
   import type HlsInstance from "hls.js";
   import { isHlsUrl } from "../lib/source";
   import type { SubtitleController } from "../lib/subtitleController.svelte";
@@ -72,7 +72,7 @@
         v.load();
         return;
       }
-      loadError = `Couldn't load this stream (${data.type} / ${data.details}). If it's a real stream, it may be locked to its origin site (referer/token), which sixseven won't bypass.`;
+      loadError = `Couldn't load this stream (${data.type} / ${data.details}). If it's a real stream, it may be locked to its origin site (referer/token), which mutsu won't bypass.`;
     });
     inst.loadSource(url);
     inst.attachMedia(v);

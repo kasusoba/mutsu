@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SourceKind } from "@sixseven/protocol";
+  import type { SourceKind } from "@mutsu/protocol";
   import type { RoomClient } from "../lib/room.svelte";
   import { classifySource, extractSourceUrl } from "../lib/source";
 

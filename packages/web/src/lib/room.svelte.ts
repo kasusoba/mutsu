@@ -19,7 +19,7 @@ import {
   type SourceKind,
   type SyncMessage,
   parseServerMessage,
-} from "@sixseven/protocol";
+} from "@mutsu/protocol";
 import { PartySocket } from "partysocket";
 
 export class RoomClient {
@@ -112,7 +112,7 @@ export class RoomClient {
         this.onRtcSignal(msg.from, msg.data);
         break;
       case "error":
-        console.warn(`[sixseven] server error: ${msg.code} — ${msg.message}`);
+        console.warn(`[mutsu] server error: ${msg.code} — ${msg.message}`);
         // A bad/expired invite key is terminal — without it the server keeps
         // closing us and PartySocket reconnects forever. Stop and tell the user.
         if (msg.code === "unauthorized") this.failAuth();
@@ -216,7 +216,7 @@ export class RoomClient {
   private async proxy<T>(op: string, payload: Record<string, unknown>): Promise<T> {
     const res = await fetch(this.httpBase(), {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-sixseven-secret": this.secret ?? "" },
+      headers: { "Content-Type": "application/json", "x-mutsu-secret": this.secret ?? "" },
       body: JSON.stringify({ op, ...payload }),
     });
     const json = (await res.json().catch(() => null)) as (T & { error?: string }) | null;

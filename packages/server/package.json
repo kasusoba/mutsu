@@ -1,5 +1,5 @@
 {
-  "name": "@sixseven/server",
+  "name": "@mutsu/server",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@sixseven/protocol": "workspace:*",
+    "@mutsu/protocol": "workspace:*",
     "fflate": "^0.8.2",
     "partyserver": "^0.5.8"
   },

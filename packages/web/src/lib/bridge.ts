@@ -13,7 +13,7 @@ import type {
   SayKind,
   SourceKind,
   SyncMessage,
-} from "@sixseven/protocol";
+} from "@mutsu/protocol";
 import {
   type ApplyMessage,
   type FrameToPageMessage,
@@ -24,13 +24,13 @@ import {
   type WidgetProxyOp,
   unwrap,
   wrap,
-} from "@sixseven/protocol/bridge";
+} from "@mutsu/protocol/bridge";
 import {
   type SatelliteStateMessage,
   type XtabMessage,
   unwrapXtab,
   wrapXtab,
-} from "@sixseven/protocol/xtab";
+} from "@mutsu/protocol/xtab";
 
 type StatusState = "loading" | "ready" | "stalled" | "failed";
 

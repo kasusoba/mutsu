@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@sixseven/protocol";
+  import type { GateMessage, Intent, MemberStatus, SyncMessage } from "@mutsu/protocol";
   import { Volume2 } from "lucide-svelte";
   import { parseYouTubeId } from "../lib/source";
   import type { SubtitleController } from "../lib/subtitleController.svelte";

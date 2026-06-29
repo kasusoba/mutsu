@@ -1,4 +1,4 @@
-# CLAUDE.md — sixseven
+# CLAUDE.md — mutsu
 
 Guidance for Claude Code working in this repo. Read the docs before writing code:
 [README](README.md) · [PRD](docs/PRD.md) · [Architecture](docs/ARCHITECTURE.md) ·
@@ -6,7 +6,7 @@ Guidance for Claude Code working in this repo. Read the docs before writing code
 
 ## What this is
 
-A self-hosted **watch-party** tool. Friends hang out in Discord voice; sixseven keeps
+A self-hosted **watch-party** tool. Friends hang out in Discord voice; mutsu keeps
 their video playback in **sync**. It is a **control-sync** system: every viewer plays their
 own copy of the source locally, and the server broadcasts only `play`/`pause`/`seek`.
 **No video bytes ever pass through the server.**
@@ -92,7 +92,7 @@ already access the source they sync**.
   Mirror `SubtitlePanel`/`GifPicker` for the widget's subtitle/gif panels.
 - **Extension ships slow, web/server ship instant.** The extension goes through store review (days);
   web (Pages) + server (PartyKit) deploy immediately. So production must keep working with the
-  *currently-published* extension. Treat `@sixseven/protocol/{bridge,xtab,picker}` (the extension↔web
+  *currently-published* extension. Treat `@mutsu/protocol/{bridge,xtab,picker}` (the extension↔web
   messages) as a **public API: additive only** — add message kinds/optional fields, never remove or
   rename; both sides ignore unknown messages. **Deploy web/server first, submit the extension last.**
   If a breaking protocol change is ever unavoidable, version it (the content script already tags
@@ -110,7 +110,7 @@ The **video/iframe picker** is **built**: an extension popup (toolbar button) sc
 across all frames for `<video>`/`<iframe>` sources, discovers open room tabs (pings content scripts;
 the room page tags `<html>` with `data-sixseven-room`), and delivers the chosen URL to the room page
 (content script → `window.postMessage` → page re-validates → `setSource`). Manual paste box too.
-Shared types in `@sixseven/protocol/picker`; popup + scan in `packages/extension` (`entrypoints/popup`,
+Shared types in `@mutsu/protocol/picker`; popup + scan in `packages/extension` (`entrypoints/popup`,
 `lib/picker.ts`); needs the `scripting` permission. See ARCHITECTURE "Source picker". Typechecks +
 builds (Chromium + Firefox); **pending the live real-embed verification run**.
 
@@ -160,7 +160,7 @@ an ordinary web room, shared via the normal invite URL. Because one viewer now s
 site), only the **hub tab is the member**; the site tab is a **dumb satellite** the hub drives
 through a **background service worker** relay (`entrypoints/background.ts` — the only MV3 context that
 can `tabs.sendMessage` between two tabs; pairing is local to one browser). It reuses the **exact
-bridge protocol** over a cross-tab carrier (`@sixseven/protocol/xtab`); on the web, `RoomBridge`
+bridge protocol** over a cross-tab carrier (`@mutsu/protocol/xtab`); on the web, `RoomBridge`
 (`web/src/lib/bridge.ts`) is one facade over `PageBridge` (iframe/`embed`) + `CrossTabBridge`
 (xtab/`site`), picked by `srcKind`. Popup → **"Watch this page together"** opens `/r/<name>?src=…&kind=site`;
 the **SiteSatellite** panel's "Open <host>" button (a user gesture) pairs the tab (reusing the
@@ -179,7 +179,7 @@ Picture-in-Picture** (`components/VideoCall.svelte` pop-out; Chromium-only, grac
 elsewhere). Closing the site tab reports you not-watching (you stay in the room). Code:
 `lib/satellite.ts` (`SatelliteController`), `lib/siteWidget.ts`, the top-frame branch of
 `entrypoints/sync.content.ts`, `web/src/components/SiteSatellite.svelte`, widget messages in
-`@sixseven/protocol/bridge`.
+`@mutsu/protocol/bridge`.
 **Removed:** the old extension-native own-tab (`lib/ownTab.ts`, `lib/partyWidget.ts`,
 `lib/roomSocket.ts`, `lib/call.ts`, `popup/ownTab.ts`) and room-by-code joining.
 
@@ -196,7 +196,7 @@ fallback when cues aren't CORS-readable. Same `SubtitleController`/panel as uplo
 mutually exclusive with them. Works for `embed` + `site` (over the bridge / cross-tab relay) **and** the
 same-origin direct `WebPlayer` (which reads its own `<video>.textTracks` directly — no bridge —
 via the controller's `directTracks` hook). Only YouTube lacks a "From this site" list. Parser
-shared at `@sixseven/protocol/subtitles`.
+shared at `@mutsu/protocol/subtitles`.
 
 **Onboarding — built:** guided empty room (pick-a-source / invite / waiting-for-host), live
 extension-presence notice on create/join (`components/ExtensionNotice.svelte`, install link in
@@ -244,7 +244,7 @@ Don't reintroduce a per-frame rect read.
 **Popup room launcher — built:** a single **Room** panel (the old "Watch on this page" own-tab tab
 is gone). It offers three **sources** — **This page** (the current tab as a `site` source, §11), a
 scanned **video**, or a **pasted URL** — and one shared **destination** chosen at the top: when a
-sixseven room tab is open it defaults to **Add to <room>** with a **Play now / Queue** toggle;
+mutsu room tab is open it defaults to **Add to <room>** with a **Play now / Queue** toggle;
 otherwise (or if you pick **New room**) it opens a fresh web room at `/r/<name>?src=…&kind=…#k=<secret>`
 (the page applies `?src` once the creator joins, then strips it — `session.ts`/App effect). So all
 three sources flow through one `act()` that either delivers to the open room (via `PICKER_DELIVER`,
@@ -304,9 +304,9 @@ pnpm dev:server         # wrangler dev backend (:8787). Loads packages/server/.d
 pnpm test:sync          # throwaway 2-client sync test (needs dev:server running) → 23/23
 node packages/server/test/subs-smoke.mjs "Inception"      # live subtitle-proxy test (needs dev:server)
 node --experimental-strip-types packages/server/test/vtt.test.mts  # SRT→VTT unit test
-pnpm --filter @sixseven/web dev          # room page dev server (Vite)
-pnpm --filter @sixseven/extension dev    # extension dev (Chromium); :firefox for FF
-pnpm --filter @sixseven/extension build  # → .output/chrome-mv3 (load unpacked)
+pnpm --filter @mutsu/web dev          # room page dev server (Vite)
+pnpm --filter @mutsu/extension dev    # extension dev (Chromium); :firefox for FF
+pnpm --filter @mutsu/extension build  # → .output/chrome-mv3 (load unpacked)
 pnpm typecheck          # across all packages (svelte-check for web)
 pnpm lint               # biome check (TS/JS); pnpm format also runs prettier on .svelte
 ```
@@ -315,5 +315,5 @@ pnpm lint               # biome check (TS/JS); pnpm format also runs prettier on
 dev` loads it automatically. For deploy, push them as Worker secrets: `wrangler secret bulk .dev.vars`.
 Never commit keys; `.env.example` documents the vars.
 
-To try the MVP locally: `pnpm dev:server` + `pnpm --filter @sixseven/web dev`, build & load the
+To try the MVP locally: `pnpm dev:server` + `pnpm --filter @mutsu/web dev`, build & load the
 extension unpacked, then open the printed URL as `/r/<room>#k=<secret>` in two browsers.

@@ -1,4 +1,4 @@
-# sixseven — Roadmap
+# mutsu — Roadmap
 
 Phases are ordered so there's something *usable* as early as possible. Each phase ends with
 a concrete "you can now…" milestone.
@@ -14,7 +14,7 @@ a concrete "you can now…" milestone.
 - [x] Frontend stack: **Svelte**.
 - [x] Control model: **both** — per-room `mode` toggle (`open` / `host` + pass-control).
 - [ ] Resolve remaining open questions (room auth, buffered-gate timing, host-disconnect).
-- [ ] Name the project (currently `sixseven`).
+- [ ] Name the project (currently `mutsu`).
 
 **Milestone:** core stack chosen ✅ — remaining items are minor and can be settled in Phase 1.
 
@@ -72,7 +72,7 @@ no ripping/forging. **Milestone (verified):** ⏳ pending a real-embed browser r
 - [ ] **Remaining:** embedded-track extraction as a source; the in-browser render verification.
 
 **Milestone (code+proxy):** ✅ proxy returns merged results and converts to VTT
-(`pnpm --filter @sixseven/server exec node test/subs-smoke.mjs`). **Milestone (render):** ⏳
+(`pnpm --filter @mutsu/server exec node test/subs-smoke.mjs`). **Milestone (render):** ⏳
 load + restyle + time-shift subs over a real synced video — pending browser run.
 
 ## Phase 4 — Secondary web-player path & niceties
@@ -116,7 +116,7 @@ Popup tab order is now **Room** (first) / **Watch on this page** (second). The R
 room" from the extension: ＋ New empty room, or a scanned video / pasted URL → new room (opens
 `WEB_APP_URL` `/r/<name>?src=…&kind=…#k=<secret>`; the page applies `?src` on join then strips it). A
 "Send to an open room instead" checkbox preserves the old deliver-to-open-room flow.
-- **Why:** for people who *don't* use Discord (e.g. a couple watching together), so sixseven is
+- **Why:** for people who *don't* use Discord (e.g. a couple watching together), so mutsu is
   self-contained — no separate voice app needed.
 - **Approach (free, on-architecture):** WebRTC **peer-to-peer** media (never through our server).
   **Signaling** (SDP/ICE exchange) rides the existing PartyKit DO as new message types

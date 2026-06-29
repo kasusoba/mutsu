@@ -9,7 +9,7 @@
  *
  * Two pieces live here because both `web` and `extension` need them:
  *  - `ROOM_ATTR`: the room page tags `<html>` so the popup (via the content
- *    script) can recognise a sixseven room tab and read its name.
+ *    script) can recognise a mutsu room tab and read its name.
  *  - `pick-source`: the message the content script posts to the room page with
  *    the URL the user picked. The page validates it and calls `setSource`.
  *

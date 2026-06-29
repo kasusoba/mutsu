@@ -1,4 +1,4 @@
-# sixseven — Architecture
+# mutsu — Architecture
 
 ## 1. Components
 
@@ -129,7 +129,7 @@ the sender gets a fresh `sync` to snap back into line.
 The room page owns the WS but **cannot script the cross-origin embed's `<video>`** (same-origin
 policy). The extension's content script — injected into that iframe — is the only code that can.
 They talk over `window.postMessage` with a tagged envelope (`packages/protocol/src/bridge.ts`,
-imported as `@sixseven/protocol/bridge`). Drift-correction (§4) runs in the content script,
+imported as `@mutsu/protocol/bridge`). Drift-correction (§4) runs in the content script,
 since it's the only side that can read/write `video.currentTime`.
 
 Page → frame: `hello` (handshake) · `apply { src, intent, time, rate, gatePaused }` (the server
@@ -173,7 +173,7 @@ room instead** checkbox (only shown when a room tab is open) switches back to th
 flow above. This still moves a URL only (§2) — the room page loads it first-party.
 
 The page-facing message (`pick-source`) and the `data-sixseven-room` marker live in
-`packages/protocol/src/picker.ts` (`@sixseven/protocol/picker`) since both web and extension need
+`packages/protocol/src/picker.ts` (`@mutsu/protocol/picker`) since both web and extension need
 them; the `are-you-room`/`deliver-source` runtime messages are extension-internal
 (`packages/extension/lib/picker.ts`). The popup needs the `scripting` permission (to scan) on top
 of the existing `<all_urls>` host permission (to read tab URLs and reach content scripts).
@@ -182,7 +182,7 @@ of the existing `<all_urls>` host permission (to read tab URLs and reach content
 
 The DO also serves an HTTP `onRequest` endpoint at the room's URL for subtitle **search/download**
 (SPEC §13, §17). It proxies subtitle *text* only (search JSON + KB-sized cue files) — control-plane,
-same category as `sync`, never video bytes. Requests must carry `x-sixseven-secret` (the room
+same category as `sync`, never video bytes. Requests must carry `x-mutsu-secret` (the room
 capability) so only members use it; provider API keys live in `room.env`, never on the client.
 `POST {op:'subs.search', query}` → `{results:[{id,provider,title,language,release}]}`;
 `POST {op:'subs.download', id}` → `{vtt}`. Providers (OpenSubtitles, SubDL) sit behind one
@@ -271,7 +271,7 @@ how every client renders the source:
 
 The kind is chosen when the source is set: the web auto-detects by file extension (`classifySource`)
 or the user forces `embed`/`direct` in the source picker. It is **content-neutral playback of a URL
-the user supplies** — sixseven does not extract stream URLs out of pages or forge `Referer`/headers
+the user supplies** — mutsu does not extract stream URLs out of pages or forge `Referer`/headers
 to defeat a site's hotlink/token protection (§3 lines hold). A protected stream that 403s without
 its origin's referer simply won't load, and we surface that rather than bypass it.
 
@@ -333,7 +333,7 @@ participate in sync. The extension just needs to be **installed and enabled**.
 
 ## 8. Non-goals
 
-sixseven is **content-neutral control-sync infrastructure**. It is explicitly **not**:
+mutsu is **content-neutral control-sync infrastructure**. It is explicitly **not**:
 
 - **A DRM bypass.** DRM is real cryptography (Widevine/PlayReady/FairPlay + licensed CDM).
   No part of this defeats it. DRM content can be *synced* (each viewer's own licensed
@@ -345,7 +345,7 @@ sixseven is **content-neutral control-sync infrastructure**. It is explicitly **
   defeat a site's hotlink/access protections.
 
 The design assumption throughout: **every viewer can already access the source they're
-syncing.** sixseven only aligns the clock.
+syncing.** mutsu only aligns the clock.
 
 ## 9. Decisions
 
@@ -530,9 +530,9 @@ WEB HUB TAB (App.svelte)                         SITE TAB (e.g. netflix.com)
                                     pairs {room → webTabId, siteTabId}
 ```
 
-**Transport.** It reuses the **exact bridge protocol** (`@sixseven/protocol/bridge`,
+**Transport.** It reuses the **exact bridge protocol** (`@mutsu/protocol/bridge`,
 `apply`/`status`/`setSubtitles`/`selectTrack`/`tracks`/`localControl`/`ended`) — only the carrier
-differs. The xtab envelope + routing live in `@sixseven/protocol/xtab` (`registerHub`,
+differs. The xtab envelope + routing live in `@mutsu/protocol/xtab` (`registerHub`,
 `openSatellite`, `adoptSatellite`, `navigateSatellite`, `relay {dir}`, `assignSatellite {active}`,
 `registerSatellite`, `satelliteState`, `satelliteHello`, `unpair`). On the web, `RoomBridge`
 (`web/src/lib/bridge.ts`) is one facade over
@@ -576,7 +576,7 @@ subject to the streaming site's `Permissions-Policy` (the old own-tab caveat is 
 Code: `entrypoints/background.ts` (relay), `lib/satellite.ts` (`SatelliteController`),
 the top-frame branch of `entrypoints/sync.content.ts` (hub-relay + satellite assignment),
 `web/src/lib/bridge.ts` (`RoomBridge`/`CrossTabBridge`), `web/src/components/SiteSatellite.svelte`,
-`@sixseven/protocol/xtab`.
+`@mutsu/protocol/xtab`.
 
 ## 12. Fun layer (reactions · chat · GIFs)
 
@@ -685,7 +685,7 @@ category from the watched source — §3 (no DRM/ripping/forging of the *content
 (`components/VideoCall.svelte`, signaling over `RoomClient`) and **own-tab** (signaling over
 `RoomSocket`; tiles managed imperatively so the widget's `render()` never reloads the `<video>`s).
 The class is duplicated in `web/src/lib/call.ts` + `extension/lib/call.ts` because
-`@sixseven/protocol` is DOM-free and can't host DOM-typed code — keep the twins in sync.
+`@mutsu/protocol` is DOM-free and can't host DOM-typed code — keep the twins in sync.
 
 **UI.** Room page: a **draggable + resizable** corner dock (grip to move, corner handle to resize).
 Own-tab: the webcam tiles live in a **separate draggable floating window** (`.call-float`), not in

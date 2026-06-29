@@ -21,7 +21,7 @@
 
 <div class="join">
   <form onsubmit={submit}>
-    <h1>sixseven</h1>
+    <h1>mutsu</h1>
     <p class="sub">Joining room <strong>{room || "(none)"}</strong></p>
     <label for="nick">Your nickname</label>
     <input id="nick" bind:value={nick} placeholder="e.g. alice" autocomplete="off" />

@@ -8,8 +8,8 @@
  * It reads/sets a `<video>` clock. It does not rip, relay, or unlock anything.
  */
 
-import { DRIFT_THRESHOLD, type Intent } from "@sixseven/protocol";
-import { STATUS_REPORT_MS, type SubtitleCue, type TrackInfo } from "@sixseven/protocol/bridge";
+import { DRIFT_THRESHOLD, type Intent } from "@mutsu/protocol";
+import { STATUS_REPORT_MS, type SubtitleCue, type TrackInfo } from "@mutsu/protocol/bridge";
 
 export type { TrackInfo };
 

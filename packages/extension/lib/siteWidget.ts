@@ -10,8 +10,8 @@
  * tabs). Shadow-isolated so the host site's CSS can't touch it.
  */
 
-import type { Member, MemberId } from "@sixseven/protocol";
-import type { SubtitleStyle, TrackInfo } from "@sixseven/protocol/bridge";
+import type { Member, MemberId } from "@mutsu/protocol";
+import type { SubtitleStyle, TrackInfo } from "@mutsu/protocol/bridge";
 import { browser } from "wxt/browser";
 
 const EMOJIS = ["😂", "❤️", "🔥", "👍", "😮", "🎉"];

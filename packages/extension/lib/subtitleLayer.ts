@@ -12,7 +12,7 @@ import {
   DEFAULT_SUBTITLE_STYLE,
   type SubtitleCue,
   type SubtitleStyle,
-} from "@sixseven/protocol/bridge";
+} from "@mutsu/protocol/bridge";
 
 /**
  * On-screen readout for debugging when devtools is blocked (e.g. streamimdb).
@@ -196,7 +196,7 @@ export class SubtitleLayer {
     if (this.hud) {
       const off = (this.style.offsetMs / 1000).toFixed(2);
       const time = t == null ? "—" : t.toFixed(1);
-      this.hud.textContent = `sixseven subs
+      this.hud.textContent = `mutsu subs
 cues ${this.cues.length} · off ${off}s
 t ${time} · ${text ? "CUE" : "—"} · ${this.style.sizePct}% ${this.style.position}
 rx: style ${this.styleCalls} · cue ${this.cueCalls}`;

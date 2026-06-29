@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { LogEvent } from "@sixseven/protocol";
+  import type { LogEvent } from "@mutsu/protocol";
   import type { RoomClient } from "../lib/room.svelte";
 
   interface Props {

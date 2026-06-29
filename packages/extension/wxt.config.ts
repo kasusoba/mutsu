@@ -12,7 +12,7 @@ export default defineConfig({
   // WXT's dev/hot-reload server defaults to :3000 (commonly taken); move it.
   dev: { server: { port: 3197 } },
   manifest: ({ browser }) => ({
-    name: "sixseven",
+    name: "mutsu",
     description: "Keep a watch party's video playback in sync.",
     // Firefox-only manifest keys (Chrome ignores/flags browser_specific_settings).
     // AMO now requires `data_collection_permissions` on every new extension, and a

@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="packages/web/public/android-chrome-512x512.png" alt="sixseven logo" width="120" height="120" />
+<img src="packages/web/public/android-chrome-512x512.png" alt="mutsu logo" width="120" height="120" />
 
-# sixseven
+# mutsu
 
 **Watch video in sync with friends while you hang out in Discord voice.**
 
@@ -43,8 +43,8 @@ buffer gate that waits for whoever is still loading.
 ```bash
 pnpm install
 pnpm dev:server                          # sync backend (:1999)
-pnpm --filter @sixseven/web dev          # room page
-pnpm --filter @sixseven/extension build  # then load .output/chrome-mv3 unpacked
+pnpm --filter @mutsu/web dev          # room page
+pnpm --filter @mutsu/extension build  # then load .output/chrome-mv3 unpacked
 ```
 
 Open the printed room URL (`/r/<room>#k=<secret>`) in two browsers to watch it sync. Hosting on
@@ -66,5 +66,5 @@ free Cloudflare tiers → [docs/DEPLOY.md](docs/DEPLOY.md). Extension specifics 
 
 This is a control-sync tool: it aligns playback of sources each viewer can already access. It
 does **not** bypass DRM, rip/rehost protected streams, or forge headers to defeat a site's
-access controls. If a source won't load for you on its own, sixseven won't make it. See
+access controls. If a source won't load for you on its own, mutsu won't make it. See
 [ARCHITECTURE.md → Non-goals](docs/ARCHITECTURE.md#non-goals).

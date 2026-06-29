@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Intent, MemberStatus, Mode, SourceKind, SyncMessage } from "@sixseven/protocol";
+  import type { Intent, MemberStatus, Mode, SourceKind, SyncMessage } from "@mutsu/protocol";
   import {
     Captions,
     Crown,
@@ -27,7 +27,7 @@
   import SourcePanel from "./components/SourcePanel.svelte";
   import SubtitlePanel from "./components/SubtitlePanel.svelte";
   import VideoCall from "./components/VideoCall.svelte";
-  import { isPickSourceMessage, ROOM_ATTR } from "@sixseven/protocol/picker";
+  import { isPickSourceMessage, ROOM_ATTR } from "@mutsu/protocol/picker";
   import { RoomBridge } from "./lib/bridge";
   import SiteSatellite from "./components/SiteSatellite.svelte";
   import { RoomClient } from "./lib/room.svelte";
@@ -524,7 +524,7 @@
   });
 
   // While joined, tag <html> with the room name so the extension picker popup
-  // can recognise this tab as a sixseven room and deliver a picked source. The
+  // can recognise this tab as a mutsu room and deliver a picked source. The
   // delivery arrives as a window message (posted by the content script on our
   // own origin); we re-validate it exactly like a pasted URL and `setSource`.
   $effect(() => {
@@ -644,7 +644,7 @@
   <div class="layout" class:full={!sidebarOpen}>
     <main>
       <header class="topbar">
-        <span class="brand">sixseven</span>
+        <span class="brand">mutsu</span>
         <span class="dot {room.connected ? 'on' : 'off'}" title={room.connected ? 'connected' : 'reconnecting…'}></span>
         <span class="room-name" title="Room">{loc.room}</span>
         <span class="spacer"></span>
@@ -817,7 +817,7 @@
 
         {#if extMissing && (sourceKind === "embed" || sourceKind === "site")}
           <div class="banner">
-            ⚠ sixseven extension not detected — {sourceKind === "site" ? "this site" : "embedded"}
+            ⚠ mutsu extension not detected — {sourceKind === "site" ? "this site" : "embedded"}
             playback can't sync. Install/enable it, then reload. (Direct, YouTube, and HLS sources
             play without the extension.)
           </div>

@@ -12,17 +12,17 @@
  * `widgetProxy` RPC. VideoHook.apply never touches `video.src` (§2).
  */
 
-import type { MemberStatus } from "@sixseven/protocol";
+import type { MemberStatus } from "@mutsu/protocol";
 import type {
   FrameToPageMessage,
   PageToFrameMessage,
   SubtitleStyle,
   TrackInfo,
   WidgetProxyOp,
-} from "@sixseven/protocol/bridge";
-import { DEFAULT_SUBTITLE_STYLE, unwrap, wrap } from "@sixseven/protocol/bridge";
-import { parseSubtitles } from "@sixseven/protocol/subtitles";
-import type { RelayUpMessage, XtabMessage } from "@sixseven/protocol/xtab";
+} from "@mutsu/protocol/bridge";
+import { DEFAULT_SUBTITLE_STYLE, unwrap, wrap } from "@mutsu/protocol/bridge";
+import { parseSubtitles } from "@mutsu/protocol/subtitles";
+import type { RelayUpMessage, XtabMessage } from "@mutsu/protocol/xtab";
 import { browser } from "wxt/browser";
 import { sameSource } from "./config";
 import { ReactionLayer } from "./reactionLayer";

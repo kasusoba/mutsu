@@ -2,7 +2,7 @@
  * Picker popup (SPEC §12, ARCHITECTURE §10.3) — "share to room".
  *
  * Scans the tab you're browsing for `<video>`/`<iframe>` sources, lists the open
- * sixseven room tabs, and on a click hands the chosen URL to a room page (which
+ * mutsu room tabs, and on a click hands the chosen URL to a room page (which
  * calls `setSource`). It never touches video bytes — it moves a URL (SPEC §2).
  *
  * Discovery is done live (no background worker): we ping every http(s) tab and
@@ -145,7 +145,7 @@ function selectedRoomTab(): number | null {
 async function deliver(url: string, srcKind?: Kind, queue = false): Promise<void> {
   const tabId = selectedRoomTab();
   if (tabId === null) {
-    notice("Open your sixseven room page in another tab, then reopen this.", "err");
+    notice("Open your mutsu room page in another tab, then reopen this.", "err");
     return;
   }
   try {
@@ -260,12 +260,12 @@ async function scanActiveTab(): Promise<MediaCandidate[]> {
       8000,
     );
     const merged = rankCandidates(results.map((r) => (r.result as MediaCandidate[]) ?? []));
-    console.debug(`[sixseven] scanned ${active.url} → ${merged.length} candidate(s)`, merged);
+    console.debug(`[mutsu] scanned ${active.url} → ${merged.length} candidate(s)`, merged);
     return merged;
   } catch (e) {
     // Host access not granted, restricted page, or the frame rejected injection.
     scanError = `Can't scan this page: ${(e as Error)?.message ?? "unknown error"}`;
-    console.warn("[sixseven] scan failed", e);
+    console.warn("[mutsu] scan failed", e);
     return [];
   }
 }
@@ -296,7 +296,7 @@ async function discoverRooms(): Promise<RoomTab[]> {
       }
     }),
   );
-  console.debug(`[sixseven] discovered ${found.length} room tab(s)`, found);
+  console.debug(`[mutsu] discovered ${found.length} room tab(s)`, found);
   return found;
 }
 
@@ -390,7 +390,7 @@ async function refresh(): Promise<void> {
     // problem since creating a fresh room is the default action.
     if (scanError) notice(scanError, "err");
   } catch (e) {
-    console.warn("[sixseven] refresh failed", e);
+    console.warn("[mutsu] refresh failed", e);
     notice(`Something went wrong: ${(e as Error)?.message ?? "unknown error"}`, "err");
   } finally {
     scanning = false;

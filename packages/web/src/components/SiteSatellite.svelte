@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { MemberStatus } from "@sixseven/protocol";
+  import type { MemberStatus } from "@mutsu/protocol";
   import { ExternalLink, MonitorPlay } from "lucide-svelte";
 
   interface Props {

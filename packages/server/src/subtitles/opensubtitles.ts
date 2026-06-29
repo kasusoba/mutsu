@@ -14,7 +14,7 @@ import {
 import { toVtt } from "./vtt.ts";
 
 const BASE = "https://api.opensubtitles.com/api/v1";
-const UA = "sixseven/0.1";
+const UA = "mutsu/0.1";
 
 interface OsSearchResponse {
   data?: Array<{

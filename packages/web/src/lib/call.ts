@@ -12,7 +12,7 @@
  * any time — e.g. when someone turns their camera on mid-call — without glare.
  */
 
-import type { MemberId } from "@sixseven/protocol";
+import type { MemberId } from "@mutsu/protocol";
 
 type SignalSender = (to: MemberId, data: unknown) => void;
 
@@ -108,7 +108,7 @@ export class CallManager {
         await pc.setLocalDescription();
         if (pc.localDescription) this.send(id, { description: pc.localDescription.toJSON() });
       } catch (e) {
-        console.warn("[sixseven] call: negotiation failed", e);
+        console.warn("[mutsu] call: negotiation failed", e);
       } finally {
         peer.makingOffer = false;
       }
@@ -143,7 +143,7 @@ export class CallManager {
         }
       }
     } catch (e) {
-      console.warn("[sixseven] call: signal error", e);
+      console.warn("[mutsu] call: signal error", e);
     }
   }
 
