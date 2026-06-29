@@ -39,6 +39,7 @@
     saveNickname,
   } from "./lib/session";
   import { classifySource, extractSourceUrl } from "./lib/source";
+  import { extState, LATEST_EXT_VERSION } from "./lib/extVersion";
   import { SubtitleController } from "./lib/subtitleController.svelte";
 
   let loc = $state(readRoomLocation());
@@ -52,8 +53,21 @@
   // Live playback position reported by the active frame (drives the scrubber).
   // `at` is a performance.now() stamp so the bar can interpolate between reports.
   let pos = $state({ t: 0, dur: 0, at: 0 });
-  // Extension presence: the content script tags <html> on our page if installed.
+  // Extension presence + freshness: the content script tags <html> with its
+  // version if installed. `extOutdated` = installed but behind the latest build.
   let extMissing = $state(false);
+  let extOutdated = $state(false);
+  // Dismiss the update nudge per target version, so it isn't naggy.
+  const UPDATE_SEEN_KEY = "mutsu:extUpdateSeen";
+  let updateDismissed = $state(false);
+  function dismissUpdate() {
+    updateDismissed = true;
+    try {
+      localStorage.setItem(UPDATE_SEEN_KEY, LATEST_EXT_VERSION);
+    } catch {
+      /* non-fatal */
+    }
+  }
   // Debug HUD (?hud): for embed sources, show the iframe video's time vs the
   // server clock + drift on the page (the embed can't be DevTools'd).
   const showHud = new URLSearchParams(window.location.search).has("hud");
@@ -493,10 +507,18 @@
     }
   });
 
-  // Detect the extension shortly after load (the content script tags <html>).
+  // Detect the extension shortly after load (the content script tags <html> with
+  // its version), and whether it's behind the latest published build.
   $effect(() => {
     const id = setTimeout(() => {
-      extMissing = document.documentElement.getAttribute("data-sixseven-ext") !== "1";
+      const state = extState();
+      extMissing = state === "missing";
+      extOutdated = state === "outdated";
+      try {
+        updateDismissed = localStorage.getItem(UPDATE_SEEN_KEY) === LATEST_EXT_VERSION;
+      } catch {
+        /* non-fatal */
+      }
     }, 2000);
     return () => clearTimeout(id);
   });
@@ -820,6 +842,11 @@
             ⚠ mutsu extension not detected — {sourceKind === "site" ? "this site" : "embedded"}
             playback can't sync. Install/enable it, then reload. (Direct, YouTube, and HLS sources
             play without the extension.)
+          </div>
+        {:else if extOutdated && !updateDismissed}
+          <div class="banner">
+            ⤴ A newer mutsu extension is available — update for the latest fixes.
+            <button class="banner-go" onclick={dismissUpdate}>Dismiss</button>
           </div>
         {/if}
 
@@ -1230,6 +1257,17 @@
     background: color-mix(in srgb, var(--bad) 38%, #000);
     color: var(--text);
     font-size: 13px;
+  }
+  .banner-go {
+    margin-left: 8px;
+    padding: 2px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
   }
   .embed-cover {
     position: absolute;

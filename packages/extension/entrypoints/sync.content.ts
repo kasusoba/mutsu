@@ -49,10 +49,15 @@ export default defineContentScript({
   runAt: "document_idle",
   main() {
     // Top frame = the room page (our origin); it talks to the DO directly. Mark
-    // the DOM so the page can detect the extension is installed/enabled and warn
-    // the user if it isn't (no extension ⇒ no bridge ⇒ nothing syncs).
+    // the DOM with our VERSION so the page can detect the extension is installed
+    // (no extension ⇒ no bridge ⇒ nothing syncs) AND nudge an update when a newer
+    // build ships. Attribute name stays `data-sixseven-ext` (the wire contract);
+    // older builds set "1", so the web treats a non-version value as "legacy".
     if (window.top === window.self) {
-      document.documentElement.setAttribute("data-sixseven-ext", "1");
+      document.documentElement.setAttribute(
+        "data-sixseven-ext",
+        browser.runtime.getManifest().version,
+      );
 
       // Picker bridge (SPEC §12): the popup discovers room tabs and delivers the
       // chosen source URL through us, since it can't script the room page's

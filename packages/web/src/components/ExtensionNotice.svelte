@@ -1,23 +1,29 @@
 <script lang="ts">
-  // Shows whether the mutsu extension is present (the content script tags
-  // <html data-sixseven-ext>). Used on the create/join screens so people know
-  // up front — embedded sites + own-tab parties need it; direct & YouTube don't.
+  // Shows whether the mutsu extension is present + up to date (the content script
+  // tags <html data-sixseven-ext> with its version). Used on the create/join
+  // screens — embedded sites + own-tab parties need it; direct & YouTube don't.
+  import { type ExtState, extState } from "../lib/extVersion";
   import { EXTENSION_URL } from "../lib/links";
 
   // null = still checking (give the content script a moment so we don't flash
   // "not detected" then correct ourselves).
-  let installed = $state<boolean | null>(null);
+  let state = $state<ExtState | null>(null);
   $effect(() => {
     const id = setTimeout(() => {
-      installed = document.documentElement.getAttribute("data-sixseven-ext") === "1";
+      state = extState();
     }, 1200);
     return () => clearTimeout(id);
   });
 </script>
 
-{#if installed === true}
+{#if state === "ok" || state === "legacy"}
   <p class="ext ok">✓ mutsu extension ready</p>
-{:else if installed === false}
+{:else if state === "outdated"}
+  <p class="ext warn">
+    Your mutsu extension is out of date.
+    <a href={EXTENSION_URL} target="_blank" rel="noreferrer">Update it</a> for the latest fixes.
+  </p>
+{:else if state === "missing"}
   <p class="ext warn">
     No mutsu extension detected — it's needed to sync embedded sites and own-tab
     parties. <a href={EXTENSION_URL} target="_blank" rel="noreferrer">Get it</a>. Direct video

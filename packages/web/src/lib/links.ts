@@ -4,4 +4,4 @@
  * for now it's the repo (load-unpacked instructions live there).
  */
 
-export const EXTENSION_URL = "https://github.com/kasusoba/sixseven#extension";
+export const EXTENSION_URL = "https://github.com/kasusoba/mutsu#extension";
