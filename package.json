@@ -13,7 +13,7 @@
     "dev:server": "pnpm --filter @mutsu/server dev",
     "dev:web": "pnpm --filter @mutsu/web dev",
     "dev:ext": "pnpm --filter @mutsu/extension dev",
-    "deploy:server": "pnpm --filter @mutsu/server deploy",
+    "deploy:server": "pnpm --filter @mutsu/server run deploy",
     "deploy:web": "pnpm --filter @mutsu/web deploy:cf",
     "test:sync": "pnpm --filter @mutsu/server test",
     "lint": "biome check .",

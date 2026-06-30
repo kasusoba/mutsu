@@ -373,6 +373,11 @@ export class RoomServer extends Server<Env> {
     // so the remaining viewers don't snap/seek. (With 2 devices over a flaky
     // tunnel, peer drops/reconnects were forcing seeks on the other device.)
     this.broadcastSync(false);
+    // Last one out: cancel the heartbeat alarm so the now-empty room stops waking
+    // up every HEARTBEAT_MS (otherwise a room left "playing" runs alarms forever).
+    if (![...this.getConnections()].some((c) => c.id !== conn.id)) {
+      await this.ctx.storage.deleteAlarm();
+    }
     await this.persist();
   }
 
@@ -813,6 +818,15 @@ export class RoomServer extends Server<Env> {
     }
   }
 
+  /** Any live (hibernatable) socket still connected? Gates the heartbeat alarm so
+   *  an EMPTY room — everyone closed their tab while "playing" instead of pausing —
+   *  stops re-arming instead of firing every HEARTBEAT_MS forever (which silently
+   *  burns Durable Object requests against the free tier). */
+  private hasConnections(): boolean {
+    for (const _ of this.getConnections()) return true;
+    return false;
+  }
+
   override async onAlarm(): Promise<void> {
     if (!this.loaded) await this.onStart();
     const now = Date.now();
@@ -840,8 +854,9 @@ export class RoomServer extends Server<Env> {
     // force=false so a solo viewer doesn't snap to it mid-playback (the jitter).
     if (this.effectivePlaying()) this.broadcastSync(false);
 
-    // Re-arm while still playing; otherwise let the alarm lapse.
-    if (this.s.intent === "playing") {
+    // Re-arm while still playing AND someone is here. An empty room lets the
+    // alarm lapse — no endless heartbeat to nobody (the runaway-alarm bug).
+    if (this.s.intent === "playing" && this.hasConnections()) {
       await this.ctx.storage.setAlarm(now + HEARTBEAT_MS);
     }
     await this.persist();
