@@ -28,8 +28,93 @@ import {
 } from "../../lib/picker";
 import { icon } from "./icons";
 
-const ROOM_ADJ = ["cosy", "late", "rainy", "neon", "velvet", "amber", "quiet", "lucky"];
-const ROOM_NOUN = ["sofa", "lounge", "den", "balcony", "cinema", "loft", "patio", "booth"];
+// Witty, IP-free room names — mirrors the web's pools in @mutsu/web session.ts.
+const RN_VERB = [
+  "summon",
+  "pause",
+  "queue",
+  "befriend",
+  "cancel",
+  "heckle",
+  "ignore",
+  "bribe",
+  "defend",
+  "interrogate",
+  "negotiate",
+  "resurrect",
+  "reschedule",
+  "fistfight",
+];
+const RN_OBJECT = [
+  "the-popcorn",
+  "the-snacks",
+  "the-remote",
+  "the-couch",
+  "the-plot",
+  "the-credits",
+  "the-villain",
+  "the-subtitles",
+  "the-group-chat",
+  "the-spoilers",
+  "the-buffering",
+  "the-intermission",
+  "the-cliffhanger",
+];
+const RN_ADJ = [
+  "feral",
+  "sleepy",
+  "unhinged",
+  "crispy",
+  "cursed",
+  "emotional",
+  "certified",
+  "nocturnal",
+  "chaotic",
+  "cozy",
+  "caffeinated",
+  "mildly-feral",
+  "sentimental",
+];
+const RN_SUBJECT = ["movie", "popcorn", "couch", "snack", "plot", "gremlin", "subtitle", "rewatch"];
+const RN_CROWD = [
+  "gremlins",
+  "goblins",
+  "enjoyers",
+  "watchers",
+  "critics",
+  "agents",
+  "raccoons",
+  "nerds",
+  "goblin-mode-watchers",
+];
+const RN_GERUND = [
+  "buffering",
+  "plotting",
+  "snacking",
+  "vibing",
+  "rewatching",
+  "crying",
+  "narrating",
+  "theorizing",
+  "spoiling",
+  "binging",
+  "emoting",
+  "pausing",
+];
+const RN_ADVERB = [
+  "emotionally",
+  "aggressively",
+  "illegally",
+  "quietly",
+  "again",
+  "professionally",
+  "at-3am",
+  "unprompted",
+  "with-snacks",
+  "in-the-dark",
+  "together",
+  "ironically",
+];
 
 /** A URL-safe capability secret — mirrors the web's `makeSecret` (§10). */
 function makeSecret(bytes = 16): string {
@@ -41,13 +126,27 @@ function makeSecret(bytes = 16): string {
     .replace(/=+$/, "");
 }
 
-/** A friendly default room name — mirrors the web's `makeRoomName`. */
+const RN_BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+/** A friendly default room name — mirrors the web's `makeRoomName` (incl. the
+ *  2-char anti-collision suffix). */
 function makeRoomName(): string {
-  const buf = new Uint8Array(3);
+  const buf = new Uint8Array(6);
   crypto.getRandomValues(buf);
-  const adj = ROOM_ADJ[(buf[0] ?? 0) % ROOM_ADJ.length] ?? "cosy";
-  const noun = ROOM_NOUN[(buf[1] ?? 0) % ROOM_NOUN.length] ?? "lounge";
-  return `${adj}-${noun}-${10 + ((buf[2] ?? 0) % 90)}`;
+  const pick = (arr: string[], b: number | undefined) => arr[(b ?? 0) % arr.length] ?? arr[0] ?? "";
+  const suffix = (RN_BASE36[(buf[4] ?? 0) % 36] ?? "0") + (RN_BASE36[(buf[5] ?? 0) % 36] ?? "0");
+  let phrase: string;
+  switch ((buf[0] ?? 0) % 3) {
+    case 0:
+      phrase = `${pick(RN_VERB, buf[1])}-${pick(RN_OBJECT, buf[2])}`;
+      break;
+    case 1:
+      phrase = `${pick(RN_ADJ, buf[1])}-${pick(RN_SUBJECT, buf[2])}-${pick(RN_CROWD, buf[3])}`;
+      break;
+    default:
+      phrase = `${pick(RN_GERUND, buf[1])}-${pick(RN_ADVERB, buf[2])}`;
+  }
+  return `${phrase}-${suffix}`;
 }
 
 /** Open a freshly-minted room on the deployed web page, optionally pre-loaded
