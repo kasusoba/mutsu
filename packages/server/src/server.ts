@@ -244,6 +244,12 @@ export class RoomServer extends Server<Env> {
         const servers = await iceServers(this.env as unknown as RtcEnv);
         return this.json({ iceServers: servers }, 200, cors);
       }
+      if (body.op === "debug.alarm") {
+        // Read-only diagnostic (member-gated, exposes no room data): is a heartbeat
+        // alarm currently scheduled? Used by the empty-room regression test to
+        // assert the alarm stops once the room empties (no runaway heartbeat).
+        return this.json({ scheduled: (await this.ctx.storage.getAlarm()) != null }, 200, cors);
+      }
       return this.json({ error: "unknown op" }, 400, cors);
     } catch (e) {
       if (e instanceof QuotaError)

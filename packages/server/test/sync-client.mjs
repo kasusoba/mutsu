@@ -23,15 +23,29 @@ function check(label, cond) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const wsUrl = (room) => `ws://${HOST}/parties/main/${room}`;
+const httpUrl = (room) => `http://${HOST}/parties/main/${room}`;
+
+/** Read-only diagnostic: is a heartbeat alarm currently scheduled for `room`? */
+async function alarmScheduled(room) {
+  const res = await fetch(httpUrl(room), {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-mutsu-secret": SECRET },
+    body: JSON.stringify({ op: "debug.alarm" }),
+  });
+  const j = await res.json();
+  return j.scheduled === true;
+}
+
 class Client {
-  constructor(tag) {
+  constructor(tag, room = ROOM) {
     this.tag = tag;
     this.self = null;
     this.sync = null; // last sync message
     this.members = null; // last members list
     this.gate = null; // last gate message
     this.errors = [];
-    this.ws = new WebSocket(URL);
+    this.ws = new WebSocket(wsUrl(room));
     this.ready = new Promise((resolve, reject) => {
       this.ws.addEventListener("open", resolve, { once: true });
       this.ws.addEventListener("error", reject, { once: true });
@@ -157,6 +171,23 @@ async function main() {
   a.close();
   b2.close();
   await sleep(100);
+
+  // ── 9. empty-room heartbeat shutdown (regression: runaway alarm) ──────────
+  // A room left in intent="playing" after everyone disconnects must NOT keep
+  // re-arming its heartbeat alarm forever (that silently burned the Durable
+  // Object free tier). Use a fresh room so prior pauses don't mask the bug.
+  console.log("\n[9] heartbeat alarm stops once the room is empty");
+  const ROOM2 = `${ROOM}-empty`;
+  const c = new Client("C", ROOM2);
+  await c.join("carol");
+  c.send({ type: "setSource", src: SRC });
+  await sleep(100);
+  c.send({ type: "control", intent: "playing", time: 0 }); // arms the heartbeat alarm
+  await sleep(250);
+  check("alarm scheduled while playing + connected", (await alarmScheduled(ROOM2)) === true);
+  c.close(); // last connection leaves a still-"playing" room
+  await sleep(700); // let onClose run (it cancels the alarm)
+  check("alarm canceled once the room is empty", (await alarmScheduled(ROOM2)) === false);
 
   console.log(`\n${failures === 0 ? "✅ ALL CHECKS PASSED" : `❌ ${failures} CHECK(S) FAILED`}\n`);
   process.exit(failures === 0 ? 0 : 1);
